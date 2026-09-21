@@ -447,7 +447,7 @@ def init_db():
     )
 
     cur.execute("PRAGMA table_info(items)")
-    existing_columns = {row for row in cur.fetchall()}
+    existing_columns = {row[1] for row in cur.fetchall()}
     wanted_columns = {
         "content_fingerprint": "TEXT",
         "hardware_domain": "TEXT",
@@ -459,7 +459,7 @@ def init_db():
             cur.execute(f"ALTER TABLE items ADD COLUMN {column_name} {column_type}")
 
     cur.execute("PRAGMA table_info(processed_urls)")
-    existing_processed_columns = {row for row in cur.fetchall()}
+    existing_processed_columns = {row[1] for row in cur.fetchall()}
     if "content_fingerprint" not in existing_processed_columns:
         cur.execute("ALTER TABLE processed_urls ADD COLUMN content_fingerprint TEXT")
 
