@@ -103,8 +103,8 @@ DB_PATH = os.getenv("DB_PATH", "/app/data/agi_hardware_trends2.db").strip()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "").strip()
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite").strip()
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-v4-flash").strip()
 
 # Safer default: fetch every 10 minutes, not every minute.
 FETCH_MINUTES = get_int("FETCH_MINUTES", 10)
@@ -1507,16 +1507,16 @@ def parse_llm_json(text):
             parsed = json.loads(text[start:end + 1])
 
     if not isinstance(parsed, dict):
-        raise ValueError("Gemini response was not a JSON object.")
-    if "results" not in parsed or not isinstance(parsed["results"], list):
-        raise ValueError("Gemini response did not include a results list.")
+        raise ValueError("OpenRouter response was not a JSON object.")
+        if "results" not in parsed or not isinstance(parsed["results"], list):
+        raise ValueError("OpenRouter response did not include a results list.")
     return parsed
 
 
 def classify_batch(candidates):
-    if not GEMINI_API_KEY:
+    if not OPENROUTER_API_KEY:
         log.error(
-            "Missing GEMINI_API_KEY. Classification skipped; batch will be requeued "
+            "Missing OPENROUTER_API_KEY. Classification skipped; batch will be requeued "
             "(capped by MAX_ITEM_RETRIES, currently %s)." % MAX_ITEM_RETRIES
         )
         return None
@@ -1595,57 +1595,53 @@ Return only valid JSON using this schema:
     }
 
     payload = {
-        "systemInstruction": {"parts": [{"text": system_prompt.strip()}]},
-        "contents": [
-            {
-                "role": "user",
-                "parts": [{"text": json.dumps(user_prompt, ensure_ascii=False)}],
-            }
+        "model": OPENROUTER_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt.strip()},
+            {"role": "user", "content": json.dumps(user_prompt, ensure_ascii=False)}
         ],
-        "generationConfig": {
-            "temperature": 0.05,
-            "responseMimeType": "application/json",
-        },
+        "temperature": 0.05,
+        "response_format": {"type": "json_object"}
     }
 
-    url = f"[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/){GEMINI_MODEL}:generateContent"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    url = "https://openrouter.ai/api/v1/chat/completions"
 
     for attempt in range(3):
         try:
             response = requests.post(
                 url,
-                params={"key": GEMINI_API_KEY},
+                headers=headers,
                 json=payload,
                 timeout=90,
             )
 
             if response.status_code == 200:
                 data = response.json()
-                text = (
-                    data.get("candidates", [{}])[0]
-                    .get("content", {})
-                    .get("parts", [{}])[0]
-                    .get("text", "")
-                )
+                text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
 
                 if DEBUG_LLM:
-                    log.debug(f"Gemini raw response:\n{text[:2500]}")
+                    log.debug(f"OpenRouter raw response:\n{text[:2500]}")
 
                 parsed = parse_llm_json(text)
                 return parsed.get("results", [])
 
             if response.status_code in [429, 500, 502, 503, 504]:
                 wait_seconds = 10 * (attempt + 1)
-                log.warning(f"Gemini temporary error {response.status_code}. Retrying in {wait_seconds}s. {response.text[:500]}")
+                log.warning(f"OpenRouter temporary error {response.status_code}. Retrying in {wait_seconds}s. {response.text[:500]}")
                 time.sleep(wait_seconds)
                 continue
 
-            log.error(f"Gemini error: {response.status_code} {response.text[:1000]}")
+            log.error(f"OpenRouter error: {response.status_code} {response.text[:1000]}")
             return None
 
         except Exception as exc:
             wait_seconds = 10 * (attempt + 1)
-            log.warning(f"Gemini exception: {repr(exc)}. Retrying in {wait_seconds}s.")
+            log.warning(f"OpenRouter exception: {repr(exc)}. Retrying in {wait_seconds}s.")
             time.sleep(wait_seconds)
 
     return None
@@ -1657,7 +1653,13 @@ def classify_and_insert(candidates):
     failed_items = []
     new_alerts = []
 
-    for batch in chunk_list(candidates, LLM_BATCH_SIZE):
+    # Convert to list so we can count total batches
+    batches = list(chunk_list(candidates, LLM_BATCH_SIZE))
+    total_batches = len(batches)
+
+    for i, batch in enumerate(batches, 1):
+        log.info(f"Processing batch {i}/{total_batches} with OpenRouter ({len(batch)} items)...")
+        
         results = classify_batch(batch)
         if results is None:
             failed_items.extend(batch)
@@ -1906,7 +1908,7 @@ def flush_queue():
         remaining = len(CANDIDATE_QUEUE)
 
     ts = utc_now().strftime("%H:%M:%S")
-    log.info(f"[{ts}] Flushing {len(batch)} item(s) through Gemini. Remaining queued: {remaining}")
+    log.info(f"[{ts}] Flushing {len(batch)} item(s) through OpenRouter. Remaining queued: {remaining}")
 
     result = classify_and_insert(batch)
 
@@ -1917,7 +1919,7 @@ def flush_queue():
 
     inserted = result.get("inserted", 0)
     processed = result.get("processed", 0)
-    log.info(f"Gemini processed {processed} item(s); inserted {inserted} relevant item(s).")
+    log.info(f"OpenRouter processed {processed} item(s); inserted {inserted} relevant item(s).")
 
     _last_flush_time = utc_now()
     touch_healthcheck()
@@ -1970,7 +1972,7 @@ def log_flush_heartbeat():
 def print_config():
     log.info("Configuration:")
     log.info(f"DB_PATH: {DB_PATH}")
-    log.info(f"GEMINI_MODEL: {GEMINI_MODEL}")
+    log.info(f"OPENROUTER_MODEL: {OPENROUTER_MODEL}")
     log.info(f"FETCH_MINUTES: {FETCH_MINUTES} (fetch and flush now run on independent timers)")
     log.info(f"MAX_CANDIDATES_PER_RUN: {MAX_CANDIDATES_PER_RUN}")
     log.info(f"MAX_CANDIDATES_PER_FLUSH: {MAX_CANDIDATES_PER_FLUSH}")
@@ -1994,7 +1996,7 @@ def print_config():
     log.info(f"ENABLE_OPENREVIEW: {ENABLE_OPENREVIEW} invitations: {len(OPENREVIEW_INVITATIONS)} per invitation: {OPENREVIEW_MAX_NOTES_PER_INVITATION}")
     log.info(f"Telegram token found: {bool(TELEGRAM_BOT_TOKEN)}")
     log.info(f"Telegram chat found: {bool(TELEGRAM_CHAT_ID)}")
-    log.info(f"Gemini key found: {bool(GEMINI_API_KEY)}")
+    log.info(f"OpenRouter key found: {bool(OPENROUTER_API_KEY)}")
 
 
 def main():
