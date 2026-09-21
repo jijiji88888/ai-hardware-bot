@@ -824,36 +824,99 @@ def send_raw_json_dump(raw_items):
 # =========================
 
 
-def _fetch_arxiv_category(category):
-    params = {
-        "search_query": f"cat:{category}",
-        "start": 0,
-        "max_results": ARXIV_RESULTS_PER_CATEGORY,
-        "sortBy": "submittedDate",
-        "sortOrder": "descending",
+ARXIV_HEADERS = {
+    "User-Agent": "ai-hardware-trend-bot/1.0 (contact: your-real-email@example.com)"
+}
+
+
+def _fetch_arxiv_atom(url, max_retries=3, timeout=15):
+    """Direct fetch + parse of the arXiv Atom API, bypassing fetch_standard_rss
+    so category tags survive (fetch_standard_rss normalizes entries down to
+    title/url/summary and drops <category> tags, which is what caused every
+    bucket to come back 0/20 the first time this was tried). Minimal
+    retry/backoff since we lose fetch_standard_rss's shared resilience
+    wrapper (Wayback fallback, cooldown, conditional GET) for this source."""
+    last_exc = None
+    for attempt in range(max_retries):
+        try:
+            resp = requests.get(url, headers=ARXIV_HEADERS, timeout=timeout)
+            resp.raise_for_status()
+            parsed = feedparser.parse(resp.content)
+            if parsed.bozo and not parsed.entries:
+                raise ValueError(f"feedparser bozo with no entries: {parsed.bozo_exception}")
+            return parsed.entries
+        except Exception as exc:
+            last_exc = exc
+            log.warning(f"arXiv fetch attempt {attempt + 1}/{max_retries} failed: {repr(exc)}")
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)  # 1s, 2s, 4s
+    log.error(f"arXiv combined fetch failed after {max_retries} attempts: {repr(last_exc)}")
+    return []
+
+
+def _parse_arxiv_entry(entry, category):
+    """Field names here MUST match what fetch_and_enqueue()/insert_item()
+    expect (url, source, source_type, published_at, raw_summary) — NOT the
+    raw feedparser/Atom names (link, published, summary). fetch_and_enqueue()
+    silently drops any item with an empty "url" (line ~1963), so a field-name
+    mismatch here doesn't error, it just makes arXiv items vanish before
+    dedup ever sees them."""
+    return {
+        "title": clean_text(entry.get("title", "")),
+        "url": normalize_url(entry.get("link", "")),
+        "source": f"arXiv / {category}",
+        "source_type": "research",
+        "published_at": entry.get("published", entry.get("updated", utc_now().isoformat())),
+        "raw_summary": clean_text(entry.get("summary", ""))[:2200],
+        "categories": [t.get("term") for t in entry.get("tags", []) if t.get("term")],
     }
-    url = "https://export.arxiv.org/api/query?" + urlencode(params)
-    try:
-        return fetch_standard_rss(
-            url,
-            source_label=f"arXiv / {category}",
-            source_type="research",
-            max_items=ARXIV_RESULTS_PER_CATEGORY,
-        )
-    except Exception as exc:
-        log.error(f"arXiv fetch issue for {category}: {repr(exc)}")
-        return []
 
 
 def fetch_arxiv():
+    """Fetch ARXIV_RESULTS_PER_CATEGORY items for each configured category
+    in a single combined API call. Bypasses fetch_standard_rss so category
+    tags are preserved for bucketing. One request total avoids the
+    concurrent-request pattern arXiv's API terms ask clients not to use,
+    and sidesteps the 429s the per-category ThreadPoolExecutor version
+    could trigger."""
     items = []
     if not ENABLE_ARXIV or not ARXIV_CATEGORIES:
         return items
 
-    workers = max(1, min(ARXIV_FETCH_WORKERS, len(ARXIV_CATEGORIES)))
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        for result in pool.map(_fetch_arxiv_category, ARXIV_CATEGORIES):
-            items.extend(result)
+    combined_query = "(" + " OR ".join(f"cat:{c}" for c in ARXIV_CATEGORIES) + ")"
+    max_results = ARXIV_RESULTS_PER_CATEGORY * len(ARXIV_CATEGORIES) * 10
+
+    params = {
+        "search_query": combined_query,
+        "start": 0,
+        "max_results": max_results,
+        "sortBy": "submittedDate",
+        "sortOrder": "descending",
+    }
+    url = "https://export.arxiv.org/api/query?" + urlencode(params)
+
+    raw_entries = _fetch_arxiv_atom(url)
+    if not raw_entries:
+        return items
+
+    # Bucket by category, capped at ARXIV_RESULTS_PER_CATEGORY per bucket.
+    # An entry can belong to multiple ARXIV_CATEGORIES (arXiv cross-lists);
+    # it's counted toward every matching bucket it's still short on, not
+    # just the first, so overlapping categories don't starve each other.
+    buckets = {cat: [] for cat in ARXIV_CATEGORIES}
+    for entry in raw_entries:
+        entry_categories = [t.get("term") for t in entry.get("tags", []) if t.get("term")]
+        for cat in ARXIV_CATEGORIES:
+            if cat in entry_categories and len(buckets[cat]) < ARXIV_RESULTS_PER_CATEGORY:
+                buckets[cat].append(_parse_arxiv_entry(entry, cat))
+
+    for cat, bucketed in buckets.items():
+        if len(bucketed) < ARXIV_RESULTS_PER_CATEGORY:
+            log.warning(
+                f"arXiv / {cat}: only {len(bucketed)} of "
+                f"{ARXIV_RESULTS_PER_CATEGORY} requested items found in combined fetch"
+            )
+        items.extend(bucketed)
 
     return items
 
