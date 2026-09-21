@@ -1508,7 +1508,7 @@ def parse_llm_json(text):
 
     if not isinstance(parsed, dict):
         raise ValueError("OpenRouter response was not a JSON object.")
-        if "results" not in parsed or not isinstance(parsed["results"], list):
+    if "results" not in parsed or not isinstance(parsed["results"], list):
         raise ValueError("OpenRouter response did not include a results list.")
     return parsed
 
