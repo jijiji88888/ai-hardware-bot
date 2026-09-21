@@ -1112,6 +1112,140 @@ def fetch_standard_rss(feed_url, source_label=None, source_type="rss", max_items
 
     return items
 
+def fetch_standard_rss_2(feed_url, source_label=None, source_type="custom_rss", max_items=None):
+    """Enriched RSS/Atom fetcher: extracts <content:encoded>, tags/categories, author, and handles stubs."""
+    items = []
+    max_items = max_items or CUSTOM_RSS_MAX_ITEMS_PER_FEED
+    feed = None
+    raw_content = None
+    live_status = None
+    not_modified = False
+
+    request_headers = dict(REQUEST_HEADERS)
+    cached_headers = FEED_CACHE_HEADERS.get(feed_url) or {}
+    if cached_headers.get("etag"):
+        request_headers["If-None-Match"] = cached_headers["etag"]
+    if cached_headers.get("last_modified"):
+        request_headers["If-Modified-Since"] = cached_headers["last_modified"]
+
+    skip_live = feed_should_skip_live(feed_url)
+    if skip_live:
+        log.info(f"RSS feed on cooldown, skipping live attempt: {source_label or feed_url}")
+
+    if not skip_live:
+        try:
+            response = requests.get(feed_url, headers=request_headers, timeout=35)
+            live_status = response.status_code
+            if response.status_code == 304:
+                not_modified = True
+            elif response.status_code == 200:
+                raw_content = response.content
+                if response.headers.get("ETag") or response.headers.get("Last-Modified"):
+                    FEED_CACHE_HEADERS[feed_url] = {
+                        "etag": response.headers.get("ETag", cached_headers.get("etag")),
+                        "last_modified": response.headers.get("Last-Modified", cached_headers.get("last_modified")),
+                    }
+            else:
+                log.info(f"RSS live fetch failed for {source_label or feed_url}: {response.status_code}")
+        except requests.exceptions.Timeout:
+            log.info(f"RSS timeout for {source_label or feed_url}.")
+        except Exception as exc:
+            log.info(f"RSS requests issue for {source_label or feed_url}: {repr(exc)}")
+
+    if not_modified:
+        feed_record_result(feed_url, success=True)
+        return items
+
+    if raw_content:
+        try:
+            feed = feedparser.parse(raw_content)
+        except Exception as exc:
+            log.info(f"RSS feedparser parsing issue for {feed_url}: {repr(exc)}")
+            feed = None
+
+    live_entries_ok = bool(feed and getattr(feed, "entries", None))
+    feed_record_result(feed_url, success=live_entries_ok)
+
+    if not live_entries_ok:
+        reason = "blocked/challenge page or malformed feed" if raw_content is not None else f"status {live_status or 'request failed'}"
+        log.info(f"RSS live path yielded no entries for {source_label or feed_url} ({reason}). Trying Wayback Machine...")
+        try:
+            wb_api_url = f"https://archive.org/wayback/available?url={feed_url}"
+            wb_resp = requests.get(wb_api_url, timeout=15)
+            if wb_resp.status_code == 200:
+                snapshots = wb_resp.json().get("archived_snapshots", {})
+                if "closest" in snapshots and snapshots["closest"].get("available"):
+                    snapshot_url = snapshots["closest"]["url"].replace("http://", "https://")
+                    log.info(f"Wayback snapshot found for {source_label or feed_url}. Fetching...")
+                    snap_resp = requests.get(snapshot_url, headers=REQUEST_HEADERS, timeout=30)
+                    if snap_resp.status_code == 200:
+                        wb_feed = feedparser.parse(snap_resp.content)
+                        if getattr(wb_feed, "entries", None):
+                            feed = wb_feed
+        except Exception as wb_exc:
+            log.info(f"Wayback Machine RSS fallback failed for {feed_url}: {repr(wb_exc)}")
+
+    if not feed or not getattr(feed, "entries", None):
+        try:
+            feed = feedparser.parse(feed_url)
+        except Exception:
+            return items
+
+    if not feed or not getattr(feed, "entries", None):
+        return items
+
+    source_name = source_label or (clean_text(feed.feed.get("title", feed_url)) if getattr(feed, "feed", None) else feed_url)
+    session = requests.Session()
+
+    for entry in getattr(feed, "entries", [])[:max_items]:
+        title = clean_text(entry.get("title", ""))
+        link = normalize_url(entry.get("link", ""))
+        if not title or not link:
+            continue
+
+        # 1. Prefer content:encoded or entry.content if available
+        body = ""
+        if "content" in entry and entry.content and isinstance(entry.content, list):
+            body = clean_text(re.sub(r"<[^>]+>", " ", entry.content[0].get("value", "")))
+        if not body:
+            body = clean_text(re.sub(r"<[^>]+>", " ", entry.get("summary", entry.get("description", ""))))
+
+        # 2. Extract tags / categories
+        tags = []
+        if "tags" in entry and entry.tags:
+            for t in entry.tags:
+                term = clean_text(t.get("term", ""))
+                if term and term not in tags:
+                    tags.append(term)
+
+        # 3. Extract author
+        author = clean_text(entry.get("author", entry.get("dc_creator", "")))
+
+        # 4. If body is very short (< 120 chars), attempt fast OpenGraph scrape
+        if len(body) < 120 and link:
+            meta_snippet = fetch_webpage_summary_snippet(session, link, timeout=6)
+            if meta_snippet and len(meta_snippet) > len(body):
+                body = f"{body} (Lead: {meta_snippet})"
+
+        substance = []
+        if tags:
+            substance.append(f"Tags: {', '.join(tags[:6])}")
+        if author:
+            substance.append(f"Author: {author}")
+        if body:
+            substance.append(f"Summary: {body[:2200]}")
+
+        items.append({
+            "title": title,
+            "url": link,
+            "source": f"RSS / {source_name}",
+            "source_type": source_type,
+            "published_at": entry.get("published", entry.get("updated", utc_now().isoformat())),
+            "raw_summary": " | ".join(substance) if substance else title,
+        })
+
+    return items
+
 
 # =========================
 # Expanded source fetchers
@@ -1150,11 +1284,73 @@ def fetch_feed_specs(specs, source_type, max_items_per_feed):
     return items
 
 
+def fetch_feed_specs_2(specs, source_type, max_items_per_feed):
+    items = []
+    for label, feed_url in specs:
+        total_for_label = 0
+        tried_any = False
+        for candidate_url in split_fallback_urls(feed_url):
+            tried_any = True
+            try:
+                fetched = fetch_standard_rss_2(
+                    candidate_url,
+                    source_label=label,
+                    source_type=source_type,
+                    max_items=max_items_per_feed,
+                )
+                log.info(f"{source_type} feed: {len(fetched)} items from {label}")
+                items.extend(fetched)
+                total_for_label += len(fetched)
+                if fetched:
+                    break
+            except Exception as exc:
+                log.error(f"{source_type} issue for {label} / {candidate_url}: {repr(exc)}")
+            time.sleep(1)
+        if tried_any and total_for_label == 0:
+            log.warning(f"{source_type}: no items from {label} after fallback URLs.")
+    return items
+
+def fetch_webpage_summary_snippet(session, url, timeout=6):
+    """Fallback scraper to grab OpenGraph or meta description for short stubs."""
+    try:
+        resp = session.get(url, headers=REQUEST_HEADERS, timeout=timeout)
+        if resp.status_code != 200:
+            return ""
+        html_text = resp.text
+        # Fast regex extraction for og:description or description meta tags
+        og_match = re.search(
+            r'<meta\s+[^>]*property=[\'"]og:description[\'"][^>]*content=[\'"]([^\'"]+)[\'"]',
+            html_text,
+            re.IGNORECASE,
+        ) or re.search(
+            r'<meta\s+[^>]*content=[\'"]([^\'"]+)[\'"][^>]*property=[\'"]og:description[\'"]',
+            html_text,
+            re.IGNORECASE,
+        )
+        if og_match:
+            return clean_text(og_match.group(1))
+
+        meta_match = re.search(
+            r'<meta\s+[^>]*name=[\'"]description[\'"][^>]*content=[\'"]([^\'"]+)[\'"]',
+            html_text,
+            re.IGNORECASE,
+        ) or re.search(
+            r'<meta\s+[^>]*content=[\'"]([^\'"]+)[\'"][^>]*name=[\'"]description[\'"]',
+            html_text,
+            re.IGNORECASE,
+        )
+        if meta_match:
+            return clean_text(meta_match.group(1))
+    except Exception:
+        pass
+    return ""
+
+
 def fetch_specialist_rss():
     if not ENABLE_SPECIALIST_RSS:
         return []
     specs = get_feed_specs("SPECIALIST_RSS_FEEDS", DEFAULT_SPECIALIST_RSS_FEEDS)
-    return fetch_feed_specs(specs, "specialist_media", SPECIALIST_RSS_MAX_ITEMS_PER_FEED)
+    return fetch_feed_specs_2(specs, "specialist_media", SPECIALIST_RSS_MAX_ITEMS_PER_FEED)
 
 
 def fetch_supply_chain_rss():
