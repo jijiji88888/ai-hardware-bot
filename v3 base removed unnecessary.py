@@ -1082,14 +1082,9 @@ def fetch_standard_rss(feed_url, source_label=None, source_type="rss", max_items
                             feed = wb_feed
         except Exception as wb_exc:
             log.info(f"Wayback Machine RSS fallback failed for {feed_url}: {repr(wb_exc)}")
-
+            
     if not feed or not getattr(feed, "entries", None):
-        try:
-            feed = feedparser.parse(feed_url)
-        except Exception:
-            return items
-
-    if not feed or not getattr(feed, "entries", None):
+        log.warning(f"No entries could be retrieved for {source_label or feed_url}.")
         return items
 
     source_name = source_label or (clean_text(feed.feed.get("title", feed_url)) if getattr(feed, "feed", None) else feed_url)
@@ -1186,12 +1181,7 @@ def fetch_standard_rss_2(feed_url, source_label=None, source_type="custom_rss", 
             log.info(f"Wayback Machine RSS fallback failed for {feed_url}: {repr(wb_exc)}")
 
     if not feed or not getattr(feed, "entries", None):
-        try:
-            feed = feedparser.parse(feed_url)
-        except Exception:
-            return items
-
-    if not feed or not getattr(feed, "entries", None):
+        log.warning(f"No entries could be retrieved for {source_label or feed_url}.")
         return items
 
     source_name = source_label or (clean_text(feed.feed.get("title", feed_url)) if getattr(feed, "feed", None) else feed_url)
