@@ -1332,57 +1332,85 @@ def split_fallback_urls(url_value):
 
 
 def fetch_feed_specs(specs, source_type, max_items_per_feed):
-    items = []
-    for label, feed_url in specs:
-        total_for_label = 0
-        tried_any = False
-        for candidate_url in split_fallback_urls(feed_url):
-            tried_any = True
-            try:
-                fetched = fetch_standard_rss(
-                    candidate_url,
-                    source_label=label,
-                    source_type=source_type,
-                    max_items=max_items_per_feed,
-                )
-                log.info(f"{source_type} feed: {len(fetched)} items from {label}")
-                items.extend(fetched)
-                total_for_label += len(fetched)
-                if fetched:
-                    break
-            except Exception as exc:
-                log.error(f"{source_type} issue for {label} / {candidate_url}: {repr(exc)}")
-            time.sleep(1)
-        if tried_any and total_for_label == 0:
-            log.warning(f"{source_type}: no items from {label} after fallback URLs.")
-    return items
+  items = []
+  for label, feed_url in specs:
+    total_for_label = 0
+    candidate_urls = split_fallback_urls(feed_url)
+    on_cooldown = False
+
+    for candidate_url in candidate_urls:
+      # If on cooldown, skip immediately without waiting
+      if feed_should_skip_live(candidate_url):
+        on_cooldown = True
+        continue
+
+      try:
+        fetched = fetch_standard_rss(
+            candidate_url,
+            source_label=label,
+            source_type=source_type,
+            max_items=max_items_per_feed,
+        )
+        log.info(f"{source_type} feed: {len(fetched)} items from {label}")
+        items.extend(fetched)
+        total_for_label += len(fetched)
+        if fetched:
+          break
+      except Exception as exc:
+        log.error(
+            f"{source_type} issue for {label} / {candidate_url}: {repr(exc)}"
+        )
+      time.sleep(1)
+
+    # Only log a warning if an actual fetch was attempted and failed
+    if not on_cooldown and total_for_label == 0:
+      if len(candidate_urls) > 1:
+        log.warning(f"{source_type}: no items from {label} after fallback URLs.")
+      else:
+        log.warning(f"{source_type}: no items retrieved from {label}.")
+
+  return items
 
 
 def fetch_feed_specs_2(specs, source_type, max_items_per_feed):
-    items = []
-    for label, feed_url in specs:
-        total_for_label = 0
-        tried_any = False
-        for candidate_url in split_fallback_urls(feed_url):
-            tried_any = True
-            try:
-                fetched = fetch_standard_rss_2(
-                    candidate_url,
-                    source_label=label,
-                    source_type=source_type,
-                    max_items=max_items_per_feed,
-                )
-                log.info(f"{source_type} feed: {len(fetched)} items from {label}")
-                items.extend(fetched)
-                total_for_label += len(fetched)
-                if fetched:
-                    break
-            except Exception as exc:
-                log.error(f"{source_type} issue for {label} / {candidate_url}: {repr(exc)}")
-            time.sleep(1)
-        if tried_any and total_for_label == 0:
-            log.warning(f"{source_type}: no items from {label} after fallback URLs.")
-    return items
+  items = []
+  for label, feed_url in specs:
+    total_for_label = 0
+    candidate_urls = split_fallback_urls(feed_url)
+    on_cooldown = False
+
+    for candidate_url in candidate_urls:
+      # If on cooldown, skip immediately without waiting
+      if feed_should_skip_live(candidate_url):
+        on_cooldown = True
+        continue
+
+      try:
+        fetched = fetch_standard_rss_2(
+            candidate_url,
+            source_label=label,
+            source_type=source_type,
+            max_items=max_items_per_feed,
+        )
+        log.info(f"{source_type} feed: {len(fetched)} items from {label}")
+        items.extend(fetched)
+        total_for_label += len(fetched)
+        if fetched:
+          break
+      except Exception as exc:
+        log.error(
+            f"{source_type} issue for {label} / {candidate_url}: {repr(exc)}"
+        )
+      time.sleep(1)
+
+    # Only log a warning if an actual fetch was attempted and failed
+    if not on_cooldown and total_for_label == 0:
+      if len(candidate_urls) > 1:
+        log.warning(f"{source_type}: no items from {label} after fallback URLs.")
+      else:
+        log.warning(f"{source_type}: no items retrieved from {label}.")
+
+  return items
 
 def fetch_webpage_summary_snippet(session, url, timeout=6):
     """Fallback scraper to grab OpenGraph or meta description for short stubs."""
