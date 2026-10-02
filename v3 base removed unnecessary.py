@@ -1061,8 +1061,9 @@ def fetch_standard_rss(feed_url, source_label=None, source_type="rss", max_items
             log.info(f"RSS feedparser parsing issue for {feed_url}: {repr(exc)}")
             feed = None
 
-    live_entries_ok = bool(feed and getattr(feed, "entries", None))
-    feed_record_result(feed_url, success=live_entries_ok)
+    if not skip_live:
+        live_entries_ok = bool(feed and getattr(feed, "entries", None))
+        feed_record_result(feed_url, success=live_entries_ok)
 
     if not live_entries_ok:
         reason = "blocked/challenge page or malformed feed" if raw_content is not None else f"status {live_status or 'request failed'}"
@@ -1158,8 +1159,9 @@ def fetch_standard_rss_2(feed_url, source_label=None, source_type="custom_rss", 
             log.info(f"RSS feedparser parsing issue for {feed_url}: {repr(exc)}")
             feed = None
 
-    live_entries_ok = bool(feed and getattr(feed, "entries", None))
-    feed_record_result(feed_url, success=live_entries_ok)
+    if not skip_live:
+        live_entries_ok = bool(feed and getattr(feed, "entries", None))
+        feed_record_result(feed_url, success=live_entries_ok)
 
     if not live_entries_ok:
         reason = "blocked/challenge page or malformed feed" if raw_content is not None else f"status {live_status or 'request failed'}"
