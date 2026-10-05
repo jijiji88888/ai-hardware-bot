@@ -1360,15 +1360,6 @@ def fetch_feed_specs(specs, source_type, max_items_per_feed):
         log.error(
             f"{source_type} issue for {label} / {candidate_url}: {repr(exc)}"
         )
-      time.sleep(1)
-
-    # Only log a warning if an actual fetch was attempted and failed
-    if not on_cooldown and total_for_label == 0:
-      if len(candidate_urls) > 1:
-        log.warning(f"{source_type}: no items from {label} after fallback URLs.")
-      else:
-        log.warning(f"{source_type}: no items retrieved from {label}.")
-
   return items
 
 
@@ -1401,15 +1392,6 @@ def fetch_feed_specs_2(specs, source_type, max_items_per_feed):
         log.error(
             f"{source_type} issue for {label} / {candidate_url}: {repr(exc)}"
         )
-      time.sleep(1)
-
-    # Only log a warning if an actual fetch was attempted and failed
-    if not on_cooldown and total_for_label == 0:
-      if len(candidate_urls) > 1:
-        log.warning(f"{source_type}: no items from {label} after fallback URLs.")
-      else:
-        log.warning(f"{source_type}: no items retrieved from {label}.")
-
   return items
 
 def fetch_webpage_summary_snippet(session, url, timeout=6):
