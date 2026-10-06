@@ -175,6 +175,8 @@ DEFAULT_SPECIALIST_RSS_FEEDS = [
     ("The Register / HPC", "https://api.theregister.com/api/v1/article?limit=25&orderBy=published&query=tag%3Ahpc&remapper=rss&site_id=2"),
     ("ServeTheHome", "https://www.servethehome.com/feed/"),
     ("OCP Blog", "https://www.opencompute.org/blog/rss;;https://news.google.com/rss/search?q=%22Open+Compute+Project%22&hl=en-US&gl=US&ceid=US:en"),
+    ("TrendForce News", "https://www.trendforce.com/news/feed")
+    ("TrendForce Emerging", "https://www.trendforce.com/feed/EmergingTechnologies.html")
 ]
 
 # Step 2: Asia/supply-chain layer
@@ -1338,12 +1340,6 @@ def fetch_feed_specs(specs, source_type, max_items_per_feed):
     candidate_urls = split_fallback_urls(feed_url)
     on_cooldown = False
 
-    for candidate_url in candidate_urls:
-      # If on cooldown, skip immediately without waiting
-      if feed_should_skip_live(candidate_url):
-        on_cooldown = True
-        continue
-
       try:
         fetched = fetch_standard_rss(
             candidate_url,
@@ -1369,12 +1365,6 @@ def fetch_feed_specs_2(specs, source_type, max_items_per_feed):
     total_for_label = 0
     candidate_urls = split_fallback_urls(feed_url)
     on_cooldown = False
-
-    for candidate_url in candidate_urls:
-      # If on cooldown, skip immediately without waiting
-      if feed_should_skip_live(candidate_url):
-        on_cooldown = True
-        continue
 
       try:
         fetched = fetch_standard_rss_2(
