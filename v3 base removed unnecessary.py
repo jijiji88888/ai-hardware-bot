@@ -1338,8 +1338,8 @@ def fetch_feed_specs(specs, source_type, max_items_per_feed):
   for label, feed_url in specs:
     total_for_label = 0
     candidate_urls = split_fallback_urls(feed_url)
-    on_cooldown = False
 
+    for candidate_url in candidate_urls:
       try:
         fetched = fetch_standard_rss(
             candidate_url,
@@ -1364,8 +1364,8 @@ def fetch_feed_specs_2(specs, source_type, max_items_per_feed):
   for label, feed_url in specs:
     total_for_label = 0
     candidate_urls = split_fallback_urls(feed_url)
-    on_cooldown = False
 
+    for candidate_url in candidate_urls:
       try:
         fetched = fetch_standard_rss_2(
             candidate_url,
