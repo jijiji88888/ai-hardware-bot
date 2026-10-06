@@ -193,10 +193,6 @@ HTML_SCRAPER_MAX_ITEMS_PER_SITE = get_int("HTML_SCRAPER_MAX_ITEMS_PER_SITE", 12)
 
 DEFAULT_HTML_SCRAPER_TARGETS = [
     ("TrendForce News", "https://www.trendforce.com/news/;;/\\d{4}/\\d{2}/\\d{2}/"),
-    ("Toms Hardware", "https://www.tomshardware.com/news;;/news/"),
-    ("The Verge Tech", "https://www.theverge.com/tech;;/\\d{4}/\\d{1,2}/"),
-    ("Reuters Tech", "https://www.reuters.com/technology/;;/technology/"),
-    ("SemiAnalysis", "https://www.semianalysis.com/;;/p/"),
 ]
 
 # Step 3: SEC EDGAR polling — broad feed across filers
@@ -2193,6 +2189,7 @@ def print_config():
     log.info(f"ENABLE_TECHMEME: {ENABLE_TECHMEME} TECHMEME_MAX_ITEMS: {TECHMEME_MAX_ITEMS}")
     log.info(f"ENABLE_SPECIALIST_RSS: {ENABLE_SPECIALIST_RSS} feeds: {len(get_feed_specs('SPECIALIST_RSS_FEEDS', DEFAULT_SPECIALIST_RSS_FEEDS))} per feed: {SPECIALIST_RSS_MAX_ITEMS_PER_FEED}")
     log.info(f"ENABLE_SUPPLY_CHAIN_RSS: {ENABLE_SUPPLY_CHAIN_RSS} feeds: {len(get_feed_specs('SUPPLY_CHAIN_RSS_FEEDS', DEFAULT_SUPPLY_CHAIN_RSS_FEEDS))} per feed: {SUPPLY_CHAIN_RSS_MAX_ITEMS_PER_FEED}")
+    log.info(f"ENABLE_HTML_SCRAPER: {ENABLE_HTML_SCRAPER} targets: {len(get_feed_specs('HTML_SCRAPER_TARGETS', DEFAULT_HTML_SCRAPER_TARGETS))} per site: {HTML_SCRAPER_MAX_ITEMS_PER_SITE}")
     log.info(f"ENABLE_SEC_EDGAR: {ENABLE_SEC_EDGAR} forms: {SEC_FORMS} broad_feed_max: {SEC_MAX_ITEMS_PER_FETCH}")
     log.info(f"ENABLE_OPENREVIEW: {ENABLE_OPENREVIEW} invitations: {len(OPENREVIEW_INVITATIONS)} per invitation: {OPENREVIEW_MAX_NOTES_PER_INVITATION}")
     log.info(f"Telegram token found: {bool(TELEGRAM_BOT_TOKEN)}")
