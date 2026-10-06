@@ -175,8 +175,8 @@ DEFAULT_SPECIALIST_RSS_FEEDS = [
     ("The Register / HPC", "https://api.theregister.com/api/v1/article?limit=25&orderBy=published&query=tag%3Ahpc&remapper=rss&site_id=2"),
     ("ServeTheHome", "https://www.servethehome.com/feed/"),
     ("OCP Blog", "https://www.opencompute.org/blog/rss;;https://news.google.com/rss/search?q=%22Open+Compute+Project%22&hl=en-US&gl=US&ceid=US:en"),
-    ("TrendForce News", "https://www.trendforce.com/news/feed")
-    ("TrendForce Emerging", "https://www.trendforce.com/feed/EmergingTechnologies.html")
+    ("TrendForce News", "https://www.trendforce.com/news/feed"),
+    ("TrendForce Emerging", "https://www.trendforce.com/feed/EmergingTechnologies.html"),
 ]
 
 # Step 2: Asia/supply-chain layer
