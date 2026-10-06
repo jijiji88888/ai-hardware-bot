@@ -18,6 +18,8 @@ import feedparser
 from dotenv import load_dotenv
 from apscheduler.schedulers.background import BackgroundScheduler
 
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin, urlsplit
 
 load_dotenv()
 
@@ -184,6 +186,12 @@ SUPPLY_CHAIN_RSS_MAX_ITEMS_PER_FEED = get_int("SUPPLY_CHAIN_RSS_MAX_ITEMS_PER_FE
 DEFAULT_SUPPLY_CHAIN_RSS_FEEDS = [
     ("DIGITIMES Asia", "https://www.digitimes.com/rss/daily.xml"),
     ("TrendForce / Semiconductors", "https://www.trendforce.com/feed/Semiconductors.html"),
+]
+
+ENABLE_HTML_SCRAPER = get_bool("ENABLE_HTML_SCRAPER", True)
+HTML_SCRAPER_MAX_ITEMS_PER_SITE = get_int("HTML_SCRAPER_MAX_ITEMS_PER_SITE", 15)
+DEFAULT_HTML_SCRAPER_TARGETS = [
+    ("TrendForce News", "https://www.trendforce.com/news/", r"/news/\d{4}/\d{2}/\d{2}/"),
 ]
 
 # Step 3: SEC EDGAR polling — broad feed across filers
@@ -1432,6 +1440,119 @@ def fetch_supply_chain_rss():
     specs = get_feed_specs("SUPPLY_CHAIN_RSS_FEEDS", DEFAULT_SUPPLY_CHAIN_RSS_FEEDS)
     return fetch_feed_specs(specs, "supply_chain_media", SUPPLY_CHAIN_RSS_MAX_ITEMS_PER_FEED)
 
+def fetch_universal_html_scrapers():
+    """Universal scraper reusing the existing get_feed_specs function."""
+    if not ENABLE_HTML_SCRAPER:
+        return []
+
+    # Reusing existing get_feed_specs
+    targets = get_feed_specs("HTML_SCRAPER_TARGETS", DEFAULT_HTML_SCRAPER_TARGETS)
+    all_scraped_items = []
+
+    ignore_patterns = re.compile(
+        r"/(about|contact|privacy|terms|login|signup|register|tag|category|author|cart|search|feed)/?", 
+        re.IGNORECASE
+    )
+
+    for label, target in targets:
+        # Unpack optional regex pattern if ';;' was provided
+        if ";;" in target:
+            base_url, url_pattern = target.split(";;", 1)
+            base_url, url_pattern = base_url.strip(), url_pattern.strip()
+        else:
+            base_url, url_pattern = target.strip(), None
+
+        site_items = []
+        seen_urls = set()
+        base_netloc = urlsplit(base_url).netloc.lower()
+
+        try:
+            resp = requests.get(base_url, headers=REQUEST_HEADERS, timeout=25)
+            if resp.status_code != 200:
+                log.warning(f"Universal scraper for '{label}' failed with status {resp.status_code}")
+                continue
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+
+            for a in soup.find_all("a", href=True):
+                href = a["href"].strip()
+                if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
+                    continue
+
+                full_url = urljoin(base_url, href)
+                parsed_url = urlsplit(full_url)
+
+                if parsed_url.netloc.lower() != base_netloc:
+                    continue
+
+                if url_pattern:
+                    if not re.search(url_pattern, full_url):
+                        continue
+                else:
+                    if ignore_patterns.search(parsed_url.path) or len(parsed_url.path.strip("/")) < 4:
+                        continue
+
+                norm_url = normalize_url(full_url)
+                if norm_url in seen_urls:
+                    continue
+
+                title = clean_text(a.get_text())
+                if len(title) < 15:
+                    heading = a.find(["h1", "h2", "h3", "h4"])
+                    if heading:
+                        title = clean_text(heading.get_text())
+                if len(title) < 15:
+                    continue
+
+                seen_urls.add(norm_url)
+
+                pub_date = utc_now().isoformat()
+                date_match = re.search(r"/(20\d{2})[-/](\d{1,2})[-/](\d{1,2})", full_url)
+                if date_match:
+                    y, m, d = date_match.groups()
+                    pub_date = f"{y}-{int(m):02d}-{int(d):02d}T00:00:00+00:00"
+
+                parent = a.find_parent(["article", "li", "div", "section"])
+                summary = ""
+                category = "General"
+                if parent:
+                    if not date_match:
+                        time_tag = parent.find("time")
+                        if time_tag and time_tag.get("datetime"):
+                            pub_date = time_tag["datetime"]
+
+                    p_tag = parent.find("p")
+                    if p_tag:
+                        summary = clean_text(p_tag.get_text())
+                    else:
+                        summary = clean_text(parent.get_text()).replace(title, "").strip()[:400]
+
+                    cat_tag = parent.find("a", href=re.compile(r"/category/"))
+                    if cat_tag:
+                        category = clean_text(cat_tag.get_text())
+
+                site_items.append({
+                    "title": title,
+                    "url": norm_url,
+                    "source": f"Web / {label}",
+                    "source_type": "scraped_web",
+                    "published_at": pub_date,
+                    "category": category,
+                    "raw_summary": summary[:2200] if summary else title,
+                })
+
+                if len(site_items) >= HTML_SCRAPER_MAX_ITEMS_PER_SITE:
+                    break
+
+            site_items.sort(key=lambda x: x["published_at"], reverse=True)
+            log.info(f"html_scraper: scraped {len(site_items)} items from '{label}'")
+            all_scraped_items.extend(site_items)
+
+        except Exception as exc:
+            log.error(f"html_scraper exception for '{label}': {repr(exc)}")
+
+    return all_scraped_items
+
 
 def fetch_sec_edgar():
     """Fetch SEC EDGAR via the broad 'Latest Filings' feed across every filer."""
@@ -1824,6 +1945,7 @@ def fetch_all_sources() -> list:
         ("techmeme", fetch_techmeme),
         ("specialist_rss", fetch_specialist_rss),
         ("supply_chain_rss", fetch_supply_chain_rss),
+        ("html_scraper", fetch_universal_html_scrapers),
         ("sec_edgar", fetch_sec_edgar),
         ("openreview", fetch_openreview),
     ]
