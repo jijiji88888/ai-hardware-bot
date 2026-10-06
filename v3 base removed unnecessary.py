@@ -189,9 +189,14 @@ DEFAULT_SUPPLY_CHAIN_RSS_FEEDS = [
 ]
 
 ENABLE_HTML_SCRAPER = get_bool("ENABLE_HTML_SCRAPER", True)
-HTML_SCRAPER_MAX_ITEMS_PER_SITE = get_int("HTML_SCRAPER_MAX_ITEMS_PER_SITE", 15)
+HTML_SCRAPER_MAX_ITEMS_PER_SITE = get_int("HTML_SCRAPER_MAX_ITEMS_PER_SITE", 12)
+
 DEFAULT_HTML_SCRAPER_TARGETS = [
-    ("TrendForce News", "https://www.trendforce.com/news/", r"/news/\d{4}/\d{2}/\d{2}/"),
+    ("TrendForce News", "https://www.trendforce.com/news/;;/\\d{4}/\\d{2}/\\d{2}/"),
+    ("Toms Hardware", "https://www.tomshardware.com/news;;/news/"),
+    ("The Verge Tech", "https://www.theverge.com/tech;;/\\d{4}/\\d{1,2}/"),
+    ("Reuters Tech", "https://www.reuters.com/technology/;;/technology/"),
+    ("SemiAnalysis", "https://www.semianalysis.com/;;/p/"),
 ]
 
 # Step 3: SEC EDGAR polling — broad feed across filers
@@ -1441,11 +1446,10 @@ def fetch_supply_chain_rss():
     return fetch_feed_specs(specs, "supply_chain_media", SUPPLY_CHAIN_RSS_MAX_ITEMS_PER_FEED)
 
 def fetch_universal_html_scrapers():
-    """Universal scraper reusing the existing get_feed_specs function."""
+    """Fetches and parses articles from all sites defined in HTML_SCRAPER_TARGETS."""
     if not ENABLE_HTML_SCRAPER:
         return []
 
-    # Reusing existing get_feed_specs
     targets = get_feed_specs("HTML_SCRAPER_TARGETS", DEFAULT_HTML_SCRAPER_TARGETS)
     all_scraped_items = []
 
@@ -1455,7 +1459,6 @@ def fetch_universal_html_scrapers():
     )
 
     for label, target in targets:
-        # Unpack optional regex pattern if ';;' was provided
         if ";;" in target:
             base_url, url_pattern = target.split(";;", 1)
             base_url, url_pattern = base_url.strip(), url_pattern.strip()
@@ -1467,9 +1470,10 @@ def fetch_universal_html_scrapers():
         base_netloc = urlsplit(base_url).netloc.lower()
 
         try:
-            resp = requests.get(base_url, headers=REQUEST_HEADERS, timeout=25)
+            # 20-second timeout per site so one slow site never stalls the pipeline
+            resp = requests.get(base_url, headers=REQUEST_HEADERS, timeout=20)
             if resp.status_code != 200:
-                log.warning(f"Universal scraper for '{label}' failed with status {resp.status_code}")
+                log.warning(f"HTML scraper: '{label}' returned HTTP status {resp.status_code}")
                 continue
 
             soup = BeautifulSoup(resp.text, "html.parser")
@@ -1482,6 +1486,7 @@ def fetch_universal_html_scrapers():
                 full_url = urljoin(base_url, href)
                 parsed_url = urlsplit(full_url)
 
+                # Keep on the same domain
                 if parsed_url.netloc.lower() != base_netloc:
                     continue
 
@@ -1506,6 +1511,7 @@ def fetch_universal_html_scrapers():
 
                 seen_urls.add(norm_url)
 
+                # Date extraction
                 pub_date = utc_now().isoformat()
                 date_match = re.search(r"/(20\d{2})[-/](\d{1,2})[-/](\d{1,2})", full_url)
                 if date_match:
@@ -1514,7 +1520,7 @@ def fetch_universal_html_scrapers():
 
                 parent = a.find_parent(["article", "li", "div", "section"])
                 summary = ""
-                category = "General"
+                category = "Hardware"
                 if parent:
                     if not date_match:
                         time_tag = parent.find("time")
@@ -1549,7 +1555,7 @@ def fetch_universal_html_scrapers():
             all_scraped_items.extend(site_items)
 
         except Exception as exc:
-            log.error(f"html_scraper exception for '{label}': {repr(exc)}")
+            log.error(f"html_scraper error scraping '{label}': {repr(exc)}")
 
     return all_scraped_items
 
