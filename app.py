@@ -195,21 +195,19 @@ DEFAULT_HTML_SCRAPER_TARGETS = [
     ("TrendForce News", "https://www.trendforce.com/news/;;/\\d{4}/\\d{2}/\\d{2}/"),
 ]
 
-# Step 3: SEC EDGAR polling — broad feed across filers
+# Step 3: SEC EDGAR polling — market-wide full-text search (EFTS)
 ENABLE_SEC_EDGAR = get_bool("ENABLE_SEC_EDGAR", True)
 SEC_USER_AGENT = os.getenv("SEC_USER_AGENT", "AI-Hardware-Trend-Bot/2.3 contact@example.com").strip()
 SEC_FORMS = get_csv("SEC_FORMS", ["8-K", "10-Q", "10-K", "S-1", "F-1", "20-F", "6-K"])
-SEC_MAX_ITEMS_PER_FETCH = get_int("SEC_MAX_ITEMS_PER_FETCH", 100)
-
-# Step 4: OpenReview
-ENABLE_OPENREVIEW = get_bool("ENABLE_OPENREVIEW", True)
-OPENREVIEW_API_BASE = os.getenv("OPENREVIEW_API_BASE", "https://api2.openreview.net").strip().rstrip("/")
-OPENREVIEW_MAX_NOTES_PER_INVITATION = get_int("OPENREVIEW_MAX_NOTES_PER_INVITATION", 12)
-OPENREVIEW_INVITATIONS = get_csv("OPENREVIEW_INVITATIONS", [
-    "ICLR.cc/2026/Conference/-/Submission",
-    "NeurIPS.cc/2025/Conference/-/Submission",
-    "ICML.cc/2026/Conference/-/Submission",
-])
+SEC_LOOKBACK_DAYS = get_int("SEC_LOOKBACK_DAYS", 3)
+SEC_MAX_ITEMS_PER_FETCH = get_int("SEC_MAX_ITEMS_PER_FETCH", 40)
+DEFAULT_SEC_EFTS_QUERY = (
+    '"HBM" OR "high bandwidth memory" OR "CoWoS" OR "silicon photonics" '
+    'OR "co-packaged optics" OR "liquid cooling" OR "immersion cooling" '
+    'OR "AI accelerator" OR "GPU cluster" OR "wafer-scale" '
+    'OR "advanced packaging" OR "optical interconnect"'
+)
+SEC_EFTS_QUERY = os.getenv("SEC_EFTS_QUERY", DEFAULT_SEC_EFTS_QUERY).strip()
 
 REQUEST_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -1557,125 +1555,106 @@ def fetch_universal_html_scrapers():
 
 
 def fetch_sec_edgar():
-    """Fetch SEC EDGAR via the broad 'Latest Filings' feed across every filer."""
+    """Search all SEC EDGAR filings via EFTS full-text search for AI hardware signals."""
     items = []
-    if not ENABLE_SEC_EDGAR:
+    if not ENABLE_SEC_EDGAR or not SEC_EFTS_QUERY:
         return items
 
-    headers = {**REQUEST_HEADERS, "User-Agent": SEC_USER_AGENT}
-    url = f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=&company=&dateb=&owner=include&start=0&count={SEC_MAX_ITEMS_PER_FETCH}&output=atom"
-
-    try:
-        response = requests.get(url, headers=headers, timeout=35)
-        if response.status_code != 200:
-            log.warning(f"SEC EDGAR Daily RSS issue: {response.status_code} {response.text[:160]}")
-        else:
-            feed = feedparser.parse(response.content)
-            kept = 0
-            for entry in getattr(feed, "entries", []):
-                title = clean_text(entry.get("title", ""))
-                link = normalize_url(entry.get("link", ""))
-                summary = clean_text(entry.get("summary", entry.get("description", "")))
-
-                if not title or not link:
-                    continue
-
-                form_match = re.match(r"^([A-Z0-9-]+)\s+-", title)
-                if form_match and form_match.group(1).strip() not in SEC_FORMS:
-                    continue
-
-                items.append({
-                    "title": title,
-                    "url": link,
-                    "source": "SEC EDGAR / Daily Feed",
-                    "source_type": "sec_filing",
-                    "published_at": entry.get("updated", entry.get("published", utc_now().isoformat())),
-                    "raw_summary": summary[:2200],
-                })
-                kept += 1
-
-            log.info(f"sec_edgar: {kept} relevant form filings extracted from broad feed")
-    except Exception as exc:
-        log.error(f"SEC EDGAR exception: {repr(exc)}")
-
-    return items
-
-
-def openreview_content_value(content, key):
-    if not isinstance(content, dict):
-        return ""
-    value = content.get(key, "")
-    if isinstance(value, dict) and "value" in value:
-        value = value.get("value")
-    if isinstance(value, list):
-        return clean_text(", ".join(str(part) for part in value))
-    return clean_text(value)
-
-
-def openreview_timestamp_to_iso(value):
-    try:
-        value = float(value)
-        if value > 10_000_000_000:
-            value = value / 1000
-        return dt.datetime.fromtimestamp(value, tz=dt.timezone.utc).isoformat()
-    except Exception:
-        return utc_now().isoformat()
-
-
-def parse_openreview_notes(data):
-    if isinstance(data, dict):
-        notes = data.get("notes") or data.get("results") or data.get("items") or []
-        return notes if isinstance(notes, list) else []
-    return []
-
-
-def fetch_openreview_invitation(invitation):
-    url = f"{OPENREVIEW_API_BASE}/notes"
-    params = {
-        "invitation": invitation,
-        "limit": OPENREVIEW_MAX_NOTES_PER_INVITATION,
-        "sort": "tmdate:desc",
+    headers = {
+        "User-Agent": SEC_USER_AGENT,
+        "Accept": "application/json",
     }
-    response = requests.get(url, params=params, headers=REQUEST_HEADERS, timeout=45)
-    if response.status_code != 200:
-        log.warning(f"OpenReview issue for {invitation}: {response.status_code} {response.text[:180]}")
-        return []
-    return parse_openreview_notes(response.json())
+    now_utc = utc_now()
+    start_dt = (now_utc - dt.timedelta(days=max(1, SEC_LOOKBACK_DAYS))).strftime("%Y-%m-%d")
+    end_dt = now_utc.strftime("%Y-%m-%d")
+    allowed_forms = {f.strip().upper() for f in SEC_FORMS if f.strip()}
 
+    params = {
+        "q": SEC_EFTS_QUERY,
+        "startdt": start_dt,
+        "enddt": end_dt,
+    }
+    if allowed_forms:
+        params["forms"] = ",".join(sorted(allowed_forms))
 
-def fetch_openreview():
-    items = []
-    if not ENABLE_OPENREVIEW:
-        return items
+    url = "https://efts.sec.gov/LATEST/search-index"
 
-    for invitation in OPENREVIEW_INVITATIONS:
-        try:
-            notes = fetch_openreview_invitation(invitation)
-            kept = 0
-            for note in notes[:OPENREVIEW_MAX_NOTES_PER_INVITATION]:
-                content = note.get("content", {}) if isinstance(note, dict) else {}
-                title = openreview_content_value(content, "title")
-                abstract = openreview_content_value(content, "abstract")
-                keywords = openreview_content_value(content, "keywords")
-                tldr = openreview_content_value(content, "TLDR") or openreview_content_value(content, "tldr")
-                note_id = note.get("id") or note.get("forum") or hashlib.sha256(title.encode("utf-8")).hexdigest()[:16]
-                if not title:
-                    continue
-                items.append({
-                    "title": title,
-                    "url": normalize_url(f"https://openreview.net/forum?id={note_id}"),
-                    "source": f"OpenReview / {invitation}",
-                    "source_type": "research_openreview",
-                    "published_at": openreview_timestamp_to_iso(note.get("tmdate") or note.get("tcdate")),
-                    "raw_summary": clean_text(
-                        f"OpenReview submission. Invitation: {invitation}. Keywords: {keywords}. TLDR: {tldr}. Abstract: {abstract[:1800]}"
-                    ),
-                })
-                kept += 1
-            log.info(f"openreview: {kept} notes from {invitation}")
-        except Exception as exc:
-            log.error(f"OpenReview exception for {invitation}: {repr(exc)}")
-        time.sleep(1)
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=35)
+        if response.status_code != 200:
+            log.warning(f"SEC EFTS issue: {response.status_code} {response.text[:160]}")
+            return items
+
+        data = response.json() or {}
+        if "errorType" in data:
+            log.warning(f"SEC EFTS query error: {data.get('errorMessage', data.get('errorType'))}")
+            return items
+
+        hits = (data.get("hits") or {}).get("hits") or []
+        seen_accessions = set()
+
+        for hit in hits:
+            if len(items) >= SEC_MAX_ITEMS_PER_FETCH:
+                break
+
+            src = hit.get("_source") or {}
+            adsh = clean_text(src.get("adsh", ""))
+            if not adsh or adsh in seen_accessions:
+                continue
+
+            form = clean_text(src.get("form", "")).upper()
+            root_forms = [clean_text(rf).upper() for rf in (src.get("root_forms") or [])]
+            if allowed_forms and form not in allowed_forms and not any(rf in allowed_forms for rf in root_forms):
+                continue
+
+            ciks = src.get("ciks") or []
+            if not ciks:
+                continue
+            cik_int = str(int(re.sub(r"\D", "", str(ciks[0])) or 0))
+            adsh_nodash = adsh.replace("-", "")
+            hit_id = hit.get("_id", "")
+            filename = hit_id.split(":", 1)[1] if ":" in hit_id else ""
+
+            if filename:
+                filing_url = normalize_url(f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{adsh_nodash}/{filename}")
+            else:
+                filing_url = normalize_url(f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{adsh_nodash}/{adsh}-index.htm")
+
+            display_names = src.get("display_names") or []
+            company_label = clean_text(display_names[0]) if display_names else f"CIK {ciks[0]}"
+            file_date = clean_text(src.get("file_date", ""))
+            period_ending = clean_text(src.get("period_ending", ""))
+            file_desc = clean_text(src.get("file_description", "") or src.get("file_type", ""))
+            sics = [clean_text(s) for s in (src.get("sics") or []) if s]
+            form_items = [clean_text(it) for it in (src.get("items") or []) if it]
+
+            seen_accessions.add(adsh)
+
+            title_desc = f": {file_desc}" if file_desc and file_desc.upper() != form else ""
+            title = f"{company_label} - Form {form}{title_desc} ({file_date})"
+
+            summary_parts = [f"Filer: {company_label}", f"Form: {form}", f"Filed: {file_date}"]
+            if period_ending:
+                summary_parts.append(f"Period: {period_ending}")
+            if sics:
+                summary_parts.append(f"SIC: {', '.join(sics)}")
+            if form_items:
+                summary_parts.append(f"8-K Items: {', '.join(form_items)}")
+            if file_desc:
+                summary_parts.append(f"Document: {file_desc}")
+
+            items.append({
+                "title": title,
+                "url": filing_url,
+                "source": "SEC EDGAR / Full-Text Search",
+                "source_type": "sec_filing",
+                "published_at": f"{file_date}T00:00:00+00:00" if file_date else utc_now().isoformat(),
+                "raw_summary": " | ".join(summary_parts)[:2200],
+            })
+
+        log.info(f"sec_edgar: {len(items)} AI-hardware filings matched via EFTS ({start_dt} to {end_dt})")
+    except Exception as exc:
+        log.error(f"SEC EDGAR EFTS exception: {repr(exc)}")
 
     return items
 
@@ -1745,7 +1724,7 @@ Relevant ONLY when the item has concrete technical substance about at least one 
 - Power and thermal: datacenter power delivery, liquid cooling, immersion cooling, rack-scale power, energy efficiency for AI compute.
 - Robotics hardware: sensors, actuators, robot hands, embodied AI hardware, embedded compute, edge AI hardware, physical autonomy systems.
 - Quantum/neuromorphic/photonic compute only if there is a clear AI compute or AI infrastructure angle.
-- SEC-filing and OpenReview items are relevant only if the title/summary clearly identifies a physical hardware, semiconductor, robotics, datacenter, power, cooling, packaging, memory, or interconnect signal.
+- SEC-filing items are relevant only if the title/summary clearly identifies a physical hardware, semiconductor, robotics, datacenter, power, cooling, packaging, memory, or interconnect signal.
 
 Positive source-quality signals:
 - SEC filing metadata, supply-chain media, or specialist semiconductor/HPC publication.
@@ -1949,7 +1928,6 @@ def fetch_all_sources() -> list:
         ("supply_chain_rss", fetch_supply_chain_rss),
         ("html_scraper", fetch_universal_html_scrapers),
         ("sec_edgar", fetch_sec_edgar),
-        ("openreview", fetch_openreview),
     ]
     all_items = []
     for name, fetcher in fetchers:
@@ -2190,8 +2168,7 @@ def print_config():
     log.info(f"ENABLE_SPECIALIST_RSS: {ENABLE_SPECIALIST_RSS} feeds: {len(get_feed_specs('SPECIALIST_RSS_FEEDS', DEFAULT_SPECIALIST_RSS_FEEDS))} per feed: {SPECIALIST_RSS_MAX_ITEMS_PER_FEED}")
     log.info(f"ENABLE_SUPPLY_CHAIN_RSS: {ENABLE_SUPPLY_CHAIN_RSS} feeds: {len(get_feed_specs('SUPPLY_CHAIN_RSS_FEEDS', DEFAULT_SUPPLY_CHAIN_RSS_FEEDS))} per feed: {SUPPLY_CHAIN_RSS_MAX_ITEMS_PER_FEED}")
     log.info(f"ENABLE_HTML_SCRAPER: {ENABLE_HTML_SCRAPER} targets: {len(get_feed_specs('HTML_SCRAPER_TARGETS', DEFAULT_HTML_SCRAPER_TARGETS))} per site: {HTML_SCRAPER_MAX_ITEMS_PER_SITE}")
-    log.info(f"ENABLE_SEC_EDGAR: {ENABLE_SEC_EDGAR} forms: {SEC_FORMS} broad_feed_max: {SEC_MAX_ITEMS_PER_FETCH}")
-    log.info(f"ENABLE_OPENREVIEW: {ENABLE_OPENREVIEW} invitations: {len(OPENREVIEW_INVITATIONS)} per invitation: {OPENREVIEW_MAX_NOTES_PER_INVITATION}")
+    log.info(f"ENABLE_SEC_EDGAR: {ENABLE_SEC_EDGAR} forms: {SEC_FORMS} lookback_days: {SEC_LOOKBACK_DAYS} max_items: {SEC_MAX_ITEMS_PER_FETCH}")
     log.info(f"Telegram token found: {bool(TELEGRAM_BOT_TOKEN)}")
     log.info(f"Telegram chat found: {bool(TELEGRAM_CHAT_ID)}")
     log.info(f"OpenRouter key found: {bool(OPENROUTER_API_KEY)}")
