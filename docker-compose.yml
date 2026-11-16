@@ -4,42 +4,7 @@ services:
     image: ai-hardware-bot:latest
     container_name: ai-hardware-bot
     restart: unless-stopped
-
     env_file:
-      - .env               # keep real secrets out of the compose file itself
-
+      - .env
     volumes:
-      - bot-data:/app/data # SQLite DB + heartbeat file survive rebuilds/restarts
-
-    # --- Isolation hardening ---
-    read_only: true         # container FS is read-only except explicit mounts below
-    tmpfs:
-      - /tmp                # scratch space for anything that wants to write a temp file
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL                 # the bot only makes outbound HTTP calls; needs no Linux caps
-
-    # No ports are published — this is an outbound-only worker (RSS/arXiv/SEC
-    # fetches out, Telegram/Gemini calls out). Nothing should ever need to
-    # reach IN to this container.
-
-    # --- Resource ceiling so a runaway loop can't take the whole VPS down ---
-    # pids is set here (not the legacy top-level pids_limit:) because recent
-    # Compose spec versions error if both are present with different values.
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 512M
-          pids: 100
-
-    # --- Log rotation so ai_hardware_bot doesn't slowly fill the disk ---
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-volumes:
-  bot-data:
+      - ./data:/app/data
