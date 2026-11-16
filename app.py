@@ -195,21 +195,27 @@ DEFAULT_HTML_SCRAPER_TARGETS = [
     ("TrendForce News", "https://www.trendforce.com/news/;;/\\d{4}/\\d{2}/\\d{2}/"),
 ]
 
-# Step 3: SEC EDGAR polling — broad feed across filers
+# Step 3: SEC EDGAR polling — targeted AI hardware & semiconductor watchlist
 ENABLE_SEC_EDGAR = get_bool("ENABLE_SEC_EDGAR", True)
 SEC_USER_AGENT = os.getenv("SEC_USER_AGENT", "AI-Hardware-Trend-Bot/2.3 contact@example.com").strip()
 SEC_FORMS = get_csv("SEC_FORMS", ["8-K", "10-Q", "10-K", "S-1", "F-1", "20-F", "6-K"])
-SEC_MAX_ITEMS_PER_FETCH = get_int("SEC_MAX_ITEMS_PER_FETCH", 100)
-
-# Step 4: OpenReview
-ENABLE_OPENREVIEW = get_bool("ENABLE_OPENREVIEW", True)
-OPENREVIEW_API_BASE = os.getenv("OPENREVIEW_API_BASE", "https://api2.openreview.net").strip().rstrip("/")
-OPENREVIEW_MAX_NOTES_PER_INVITATION = get_int("OPENREVIEW_MAX_NOTES_PER_INVITATION", 12)
-OPENREVIEW_INVITATIONS = get_csv("OPENREVIEW_INVITATIONS", [
-    "ICLR.cc/2026/Conference/-/Submission",
-    "NeurIPS.cc/2025/Conference/-/Submission",
-    "ICML.cc/2026/Conference/-/Submission",
-])
+SEC_LOOKBACK_DAYS = get_int("SEC_LOOKBACK_DAYS", 7)
+SEC_MAX_ITEMS_PER_COMPANY = get_int("SEC_MAX_ITEMS_PER_COMPANY", 5)
+DEFAULT_SEC_WATCHLIST_CIKS = [
+    "0001045810",  # NVIDIA (NVDA)
+    "0000002488",  # AMD (AMD)
+    "0000050863",  # Intel (INTC)
+    "0001046179",  # TSMC (TSM)
+    "0001730168",  # Broadcom (AVGO)
+    "0000723125",  # Micron (MU)
+    "0001835632",  # Marvell (MRVL)
+    "0001375365",  # Super Micro (SMCI)
+    "0001973239",  # Arm (ARM)
+    "0000937966",  # ASML (ASML)
+    "0001674101",  # Vertiv (VRT)
+    "0000820318",  # Coherent (COHR)
+]
+SEC_WATCHLIST_CIKS = get_csv("SEC_WATCHLIST_CIKS", DEFAULT_SEC_WATCHLIST_CIKS)
 
 REQUEST_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -1557,126 +1563,102 @@ def fetch_universal_html_scrapers():
 
 
 def fetch_sec_edgar():
-    """Fetch SEC EDGAR via the broad 'Latest Filings' feed across every filer."""
+    """Fetch recent SEC EDGAR filings for targeted AI hardware & semiconductor CIKs."""
     items = []
-    if not ENABLE_SEC_EDGAR:
+    if not ENABLE_SEC_EDGAR or not SEC_WATCHLIST_CIKS:
         return items
 
-    headers = {**REQUEST_HEADERS, "User-Agent": SEC_USER_AGENT}
-    url = f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=&company=&dateb=&owner=include&start=0&count={SEC_MAX_ITEMS_PER_FETCH}&output=atom"
-
-    try:
-        response = requests.get(url, headers=headers, timeout=35)
-        if response.status_code != 200:
-            log.warning(f"SEC EDGAR Daily RSS issue: {response.status_code} {response.text[:160]}")
-        else:
-            feed = feedparser.parse(response.content)
-            kept = 0
-            for entry in getattr(feed, "entries", []):
-                title = clean_text(entry.get("title", ""))
-                link = normalize_url(entry.get("link", ""))
-                summary = clean_text(entry.get("summary", entry.get("description", "")))
-
-                if not title or not link:
-                    continue
-
-                form_match = re.match(r"^([A-Z0-9-]+)\s+-", title)
-                if form_match and form_match.group(1).strip() not in SEC_FORMS:
-                    continue
-
-                items.append({
-                    "title": title,
-                    "url": link,
-                    "source": "SEC EDGAR / Daily Feed",
-                    "source_type": "sec_filing",
-                    "published_at": entry.get("updated", entry.get("published", utc_now().isoformat())),
-                    "raw_summary": summary[:2200],
-                })
-                kept += 1
-
-            log.info(f"sec_edgar: {kept} relevant form filings extracted from broad feed")
-    except Exception as exc:
-        log.error(f"SEC EDGAR exception: {repr(exc)}")
-
-    return items
-
-
-def openreview_content_value(content, key):
-    if not isinstance(content, dict):
-        return ""
-    value = content.get(key, "")
-    if isinstance(value, dict) and "value" in value:
-        value = value.get("value")
-    if isinstance(value, list):
-        return clean_text(", ".join(str(part) for part in value))
-    return clean_text(value)
-
-
-def openreview_timestamp_to_iso(value):
-    try:
-        value = float(value)
-        if value > 10_000_000_000:
-            value = value / 1000
-        return dt.datetime.fromtimestamp(value, tz=dt.timezone.utc).isoformat()
-    except Exception:
-        return utc_now().isoformat()
-
-
-def parse_openreview_notes(data):
-    if isinstance(data, dict):
-        notes = data.get("notes") or data.get("results") or data.get("items") or []
-        return notes if isinstance(notes, list) else []
-    return []
-
-
-def fetch_openreview_invitation(invitation):
-    url = f"{OPENREVIEW_API_BASE}/notes"
-    params = {
-        "invitation": invitation,
-        "limit": OPENREVIEW_MAX_NOTES_PER_INVITATION,
-        "sort": "tmdate:desc",
+    headers = {
+        "User-Agent": SEC_USER_AGENT,
+        "Accept": "application/json",
     }
-    response = requests.get(url, params=params, headers=REQUEST_HEADERS, timeout=45)
-    if response.status_code != 200:
-        log.warning(f"OpenReview issue for {invitation}: {response.status_code} {response.text[:180]}")
-        return []
-    return parse_openreview_notes(response.json())
+    cutoff_date = (utc_now() - dt.timedelta(days=max(1, SEC_LOOKBACK_DAYS))).strftime("%Y-%m-%d")
+    allowed_forms = {f.strip().upper() for f in SEC_FORMS if f.strip()}
 
+    for raw_cik in SEC_WATCHLIST_CIKS:
+        digits = re.sub(r"\D", "", str(raw_cik))
+        if not digits:
+            continue
+        cik10 = digits.zfill(10)
+        cik_int = str(int(digits))
+        url = f"https://data.sec.gov/submissions/CIK{cik10}.json"
 
-def fetch_openreview():
-    items = []
-    if not ENABLE_OPENREVIEW:
-        return items
-
-    for invitation in OPENREVIEW_INVITATIONS:
         try:
-            notes = fetch_openreview_invitation(invitation)
-            kept = 0
-            for note in notes[:OPENREVIEW_MAX_NOTES_PER_INVITATION]:
-                content = note.get("content", {}) if isinstance(note, dict) else {}
-                title = openreview_content_value(content, "title")
-                abstract = openreview_content_value(content, "abstract")
-                keywords = openreview_content_value(content, "keywords")
-                tldr = openreview_content_value(content, "TLDR") or openreview_content_value(content, "tldr")
-                note_id = note.get("id") or note.get("forum") or hashlib.sha256(title.encode("utf-8")).hexdigest()[:16]
-                if not title:
+            response = requests.get(url, headers=headers, timeout=25)
+            if response.status_code != 200:
+                log.warning(f"SEC EDGAR issue for CIK {cik10}: {response.status_code} {response.text[:160]}")
+                time.sleep(0.15)
+                continue
+
+            data = response.json() or {}
+            company_name = clean_text(data.get("name", f"CIK {cik10}"))
+            tickers = data.get("tickers") or []
+            ticker_str = tickers[0] if tickers else ""
+            recent = (data.get("filings") or {}).get("recent") or {}
+
+            accessions = recent.get("accessionNumber") or []
+            filing_dates = recent.get("filingDate") or []
+            report_dates = recent.get("reportDate") or []
+            forms = recent.get("form") or []
+            primary_docs = recent.get("primaryDocument") or []
+            primary_descs = recent.get("primaryDocDescription") or []
+            items_list = recent.get("items") or []
+
+            kept_for_company = 0
+            for idx, accession in enumerate(accessions):
+                if kept_for_company >= SEC_MAX_ITEMS_PER_COMPANY:
+                    break
+
+                form = clean_text(forms[idx] if idx < len(forms) else "").upper()
+                filing_date = clean_text(filing_dates[idx] if idx < len(filing_dates) else "")
+                if not form or form not in allowed_forms:
                     continue
+                if filing_date and filing_date < cutoff_date:
+                    break
+
+                acc_no_dash = str(accession).replace("-", "")
+                primary_doc = clean_text(primary_docs[idx] if idx < len(primary_docs) else "")
+                doc_desc = clean_text(primary_descs[idx] if idx < len(primary_descs) else "")
+                report_date = clean_text(report_dates[idx] if idx < len(report_dates) else "")
+                form_items = items_list[idx] if idx < len(items_list) else ""
+                if isinstance(form_items, list):
+                    form_items = ", ".join(str(x) for x in form_items if x)
+                else:
+                    form_items = clean_text(form_items)
+
+                if primary_doc:
+                    filing_url = normalize_url(f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{acc_no_dash}/{primary_doc}")
+                else:
+                    filing_url = normalize_url(f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{acc_no_dash}/")
+
+                label = f"{company_name} ({ticker_str})" if ticker_str else company_name
+                title_suffix = f": {doc_desc}" if doc_desc and doc_desc.upper() != form else ""
+                title = f"{label} - Form {form}{title_suffix} ({filing_date})"
+
+                summary_parts = [f"Company: {label}", f"Form: {form}", f"Filed: {filing_date}"]
+                if report_date:
+                    summary_parts.append(f"Period: {report_date}")
+                if form_items:
+                    summary_parts.append(f"8-K Items: {form_items}")
+                if doc_desc:
+                    summary_parts.append(f"Document: {doc_desc}")
+
                 items.append({
                     "title": title,
-                    "url": normalize_url(f"https://openreview.net/forum?id={note_id}"),
-                    "source": f"OpenReview / {invitation}",
-                    "source_type": "research_openreview",
-                    "published_at": openreview_timestamp_to_iso(note.get("tmdate") or note.get("tcdate")),
-                    "raw_summary": clean_text(
-                        f"OpenReview submission. Invitation: {invitation}. Keywords: {keywords}. TLDR: {tldr}. Abstract: {abstract[:1800]}"
-                    ),
+                    "url": filing_url,
+                    "source": f"SEC EDGAR / {ticker_str or company_name}",
+                    "source_type": "sec_filing",
+                    "published_at": f"{filing_date}T00:00:00+00:00" if filing_date else utc_now().isoformat(),
+                    "raw_summary": " | ".join(summary_parts)[:2200],
                 })
-                kept += 1
-            log.info(f"openreview: {kept} notes from {invitation}")
-        except Exception as exc:
-            log.error(f"OpenReview exception for {invitation}: {repr(exc)}")
-        time.sleep(1)
+                kept_for_company += 1
 
+        except Exception as exc:
+            log.error(f"SEC EDGAR exception for CIK {cik10}: {repr(exc)}")
+
+        time.sleep(0.15)
+
+    log.info(f"sec_edgar: {len(items)} watchlist filings extracted across {len(SEC_WATCHLIST_CIKS)} CIKs")
     return items
 
 
@@ -1745,7 +1727,7 @@ Relevant ONLY when the item has concrete technical substance about at least one 
 - Power and thermal: datacenter power delivery, liquid cooling, immersion cooling, rack-scale power, energy efficiency for AI compute.
 - Robotics hardware: sensors, actuators, robot hands, embodied AI hardware, embedded compute, edge AI hardware, physical autonomy systems.
 - Quantum/neuromorphic/photonic compute only if there is a clear AI compute or AI infrastructure angle.
-- SEC-filing and OpenReview items are relevant only if the title/summary clearly identifies a physical hardware, semiconductor, robotics, datacenter, power, cooling, packaging, memory, or interconnect signal.
+- SEC-filing items are relevant only if the title/summary clearly identifies a physical hardware, semiconductor, robotics, datacenter, power, cooling, packaging, memory, or interconnect signal.
 
 Positive source-quality signals:
 - SEC filing metadata, supply-chain media, or specialist semiconductor/HPC publication.
@@ -1949,7 +1931,6 @@ def fetch_all_sources() -> list:
         ("supply_chain_rss", fetch_supply_chain_rss),
         ("html_scraper", fetch_universal_html_scrapers),
         ("sec_edgar", fetch_sec_edgar),
-        ("openreview", fetch_openreview),
     ]
     all_items = []
     for name, fetcher in fetchers:
@@ -2190,8 +2171,7 @@ def print_config():
     log.info(f"ENABLE_SPECIALIST_RSS: {ENABLE_SPECIALIST_RSS} feeds: {len(get_feed_specs('SPECIALIST_RSS_FEEDS', DEFAULT_SPECIALIST_RSS_FEEDS))} per feed: {SPECIALIST_RSS_MAX_ITEMS_PER_FEED}")
     log.info(f"ENABLE_SUPPLY_CHAIN_RSS: {ENABLE_SUPPLY_CHAIN_RSS} feeds: {len(get_feed_specs('SUPPLY_CHAIN_RSS_FEEDS', DEFAULT_SUPPLY_CHAIN_RSS_FEEDS))} per feed: {SUPPLY_CHAIN_RSS_MAX_ITEMS_PER_FEED}")
     log.info(f"ENABLE_HTML_SCRAPER: {ENABLE_HTML_SCRAPER} targets: {len(get_feed_specs('HTML_SCRAPER_TARGETS', DEFAULT_HTML_SCRAPER_TARGETS))} per site: {HTML_SCRAPER_MAX_ITEMS_PER_SITE}")
-    log.info(f"ENABLE_SEC_EDGAR: {ENABLE_SEC_EDGAR} forms: {SEC_FORMS} broad_feed_max: {SEC_MAX_ITEMS_PER_FETCH}")
-    log.info(f"ENABLE_OPENREVIEW: {ENABLE_OPENREVIEW} invitations: {len(OPENREVIEW_INVITATIONS)} per invitation: {OPENREVIEW_MAX_NOTES_PER_INVITATION}")
+    log.info(f"ENABLE_SEC_EDGAR: {ENABLE_SEC_EDGAR} forms: {SEC_FORMS} watchlist_ciks: {len(SEC_WATCHLIST_CIKS)} lookback_days: {SEC_LOOKBACK_DAYS}")
     log.info(f"Telegram token found: {bool(TELEGRAM_BOT_TOKEN)}")
     log.info(f"Telegram chat found: {bool(TELEGRAM_CHAT_ID)}")
     log.info(f"OpenRouter key found: {bool(OPENROUTER_API_KEY)}")
