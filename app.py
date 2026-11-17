@@ -1418,7 +1418,8 @@ def fetch_hackernews():
         return items
 
     session = requests.Session()
-    workers = max(1, min(HN_FETCH_WORKERS, len(fresh_ids)))\n    with ThreadPoolExecutor(max_workers=workers) as pool:
+    workers = max(1, min(HN_FETCH_WORKERS, len(fresh_ids)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = [pool.submit(_fetch_hn_item, session, sid) for sid in fresh_ids]
         for future in as_completed(futures):
             result = future.result()

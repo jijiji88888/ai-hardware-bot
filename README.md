@@ -3,7 +3,8 @@
 ## Role in the Two-Repository Pipeline
 
 1. **`jijiji88888/ai-hardware-bot` (Broad Internet Fetcher & Relevance Filter)**:
-   - Fetches candidate articles, filings, and preprints from the broad internet (`arXiv`, `SEC EDGAR EFTS`, `Semiconductor Engineering`, `ServeTheHome`, `The Register HPC`, `OCP`, `Data Center Dynamics`, `Chips and Cheese`, `DIGITIMES`, `TrendForce`, `Techmeme`, `Hacker News`, and targeted Frontier Topic RSS streams).
+   - Driven by `.env` switches (`ENABLE_*`), per-source caps (`*_MAX_ITEMS*`), and `Label=Spec|Label2=Spec2` specifications parsed via `get_feed_specs()` in `app.py`.
+   - Fetches candidate articles, filings, and preprints from the broad internet (`arXiv` category + targeted frontier keyword queries, `SEC EDGAR EFTS` base + 6 topic-scoped full-text queries, `Semiconductor Engineering`, `ServeTheHome`, `The Register HPC`, `OCP`, `Data Center Dynamics`, `Chips and Cheese`, `DIGITIMES`, `TrendForce`, `Techmeme`, `Hacker News`, and 6 targeted Frontier Topic RSS streams).
    - Deterministically tags and prioritizes candidates across the **6 Priority Frontier Hardware Pillars** (`match_frontier_topics` / `enrich_item_with_frontier_topics`) before queue capping or LLM batching.
    - Uses its OpenRouter LLM classifier (`classify_batch` in `app.py`) to evaluate domain relevance and extract structured fields (`hardware_domain`, `bottleneck_addressed`, `specific_tech`, `frontier_topic`, `frontier_subtopics`, `relevance_score`, `why_it_matters`, `ai_revolution_thesis`, `raw_summary`) into `agi_hardware_trends.db` (SQLite WAL mode).
 
@@ -13,7 +14,7 @@
      - **Output 1 (`trending_now`)**: What is trending right now across the research pipeline and why it is poised to gain traction.
      - **Output 2 (`database_viral_matches`)**: Whether any previously sorted item in `agi_hardware_trends.db` shares identical technical/narrative features (`bottleneck_addressed`, `specific_tech`, `hardware_domain`, `frontier_topic`, information asymmetry, and controversy triggers) to go viral online—listing the exact matching database items if `YES`, or outputting `NO` if none match.
 
-## 6 Priority Frontier Hardware Pillars Tracked Across All Stages
+## 6 Priority Frontier Hardware Pillars Configured in `.env` & `app.py`
 
 1. **Advanced Thermal Management & Liquid/Immersion Cooling Systems**
    - *Why it complies*: Compute accelerator TDPs have exceeded 1,000 W per socket and are moving toward 2,000 W+, rendering air cooling physically unviable. Heat dissipation at the cold plate and facility loop is now a primary governor of cluster density.
@@ -50,21 +51,3 @@
    - *Core sub-topics*:
      - Direct-drive optical circuit switches (OCS) using micro-electro-mechanical system (MEMS) 2D/3D mirror arrays.
      - 51.2T and 102.4T switch ASICs co-packaged with optical engines (CPO).
-
-## Optional `.env` Overrides
-
-All 6 Frontier Hardware Pillars are enabled by default in `app.py` (even if your existing `.env` is unchanged). You can optionally tune their behavior in `.env`:
-
-```ini
-# Targeted arXiv keyword search across the 6 Frontier Hardware Pillars
-ENABLE_ARXIV_FRONTIER_SEARCH=true
-ARXIV_FRONTIER_MAX_RESULTS_PER_TOPIC=8
-ARXIV_CATEGORIES=cs.AR,cs.DC,cs.ET,cs.NI,cs.RO,cs.AI,cs.LG,eess.SY,eess.SP,eess.IV,physics.optics,physics.app-ph,cond-mat.mtrl-sci,physics.flu-dyn
-
-# Targeted Frontier Hardware RSS streams
-ENABLE_FRONTIER_TOPIC_RSS=true
-FRONTIER_TOPIC_RSS_MAX_ITEMS_PER_FEED=8
-
-# Topic-scoped SEC EDGAR EFTS full-text search expansion across all 6 pillars
-ENABLE_SEC_FRONTIER_EXPANSION=true
-```
