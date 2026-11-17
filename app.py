@@ -156,8 +156,8 @@ HEALTHCHECK_FILE = os.getenv("HEALTHCHECK_FILE", "/app/data/heartbeat.txt").stri
 LLM_TEXT_FIELD_MAX_CHARS = get_int("LLM_TEXT_FIELD_MAX_CHARS", 500)
 
 DEFAULT_ARXIV_CATEGORIES = [
-    "cs.AR", "cs.DC", "cs.ET", "cs.NI", "cs.RO", "cs.LG",
-    "eess.SP", "eess.SY", "eess.IV",
+    "cs.AI", "cs.LG", "cs.CL", "cs.CV", "cs.RO", "cs.DC", "cs.AR", "cs.ET", "cs.NI",
+    "eess.SY", "eess.SP", "eess.IV",
     "physics.optics", "physics.app-ph", "cond-mat.mtrl-sci", "physics.flu-dyn",
 ]
 ARXIV_CATEGORIES = get_csv("ARXIV_CATEGORIES", DEFAULT_ARXIV_CATEGORIES)
@@ -177,7 +177,7 @@ DEFAULT_SPECIALIST_RSS_FEEDS = [
     ("Semiconductor Engineering", "https://semiengineering.com/feed/"),
     ("The Register HPC", "https://www.theregister.com/on_prem/headlines.atom"),
     ("ServeTheHome", "https://www.servethehome.com/feed/"),
-    ("OCP Blog", "https://www.opencompute.org/blog/rss"),
+    ("OCP Blog", "https://www.opencompute.org/blog/rss;;https://news.google.com/rss/search?q=%22Open+Compute+Project%22&hl=en-US&gl=US&ceid=US:en"),
     ("Data Center Dynamics", "https://www.datacenterdynamics.com/en/rss/;;https://www.datacenterdynamics.com/rss/"),
     ("Power Electronics News", "https://www.powerelectronicsnews.com/feed/"),
     ("EE Times", "https://www.eetimes.com/feed/"),
@@ -201,31 +201,172 @@ DEFAULT_HTML_SCRAPER_TARGETS = [
     ("TrendForce News", "https://www.trendforce.com/news/;;/\\d{4}/\\d{2}/\\d{2}/"),
 ]
 
+# Step 3: SEC EDGAR polling — market-wide full-text search (EFTS)
+ENABLE_SEC_EDGAR = get_bool("ENABLE_SEC_EDGAR", False)
+SEC_USER_AGENT = os.getenv("SEC_USER_AGENT", "AI-Hardware-Trend-Bot/2.3 contact@example.com").strip()
+SEC_FORMS = get_csv("SEC_FORMS", ["8-K", "10-Q", "10-K", "S-1", "F-1", "20-F", "6-K"])
+SEC_LOOKBACK_DAYS = get_int("SEC_LOOKBACK_DAYS", 3)
+SEC_MAX_ITEMS_PER_FETCH = get_int("SEC_MAX_ITEMS_PER_FETCH", 40)
+DEFAULT_SEC_EFTS_QUERY = (
+    '"HBM" OR "high bandwidth memory" OR "CoWoS" OR "silicon photonics" '
+    'OR "co-packaged optics" OR "liquid cooling" OR "immersion cooling" '
+    'OR "AI accelerator" OR "GPU cluster" OR "wafer-scale" '
+    'OR "advanced packaging" OR "optical interconnect"'
+)
+SEC_EFTS_QUERY = os.getenv("SEC_EFTS_QUERY", DEFAULT_SEC_EFTS_QUERY).strip()
+
 # =========================
-# 6 Priority Frontier Hardware Domains & Sub-Topic Taxonomy (In-Memory Tagging & LLM Guidance)
+# Unified Hardware Domain Taxonomy (Equal In-Memory Signal Detection Across Old & New Topics)
 # =========================
-FRONTIER_TOPICS = [
+HARDWARE_DOMAIN_TAXONOMY = [
     {
-        "id": "thermal_liquid_immersion",
-        "title": "Advanced Thermal Management & Liquid/Immersion Cooling Systems",
-        "category": "Thermal & Cooling",
-        "hardware_domain": "power cooling",
-        "bottleneck_addressed": "thermal",
-        "why_it_complies": (
-            "Compute accelerator TDPs have exceeded 1,000 W per socket and are moving toward 2,000 W+, "
-            "rendering air cooling physically unviable. Heat dissipation at the cold plate and facility "
-            "loop is now a primary governor of cluster density."
-        ),
+        "domain": "AI accelerator",
+        "bottleneck": "compute",
         "subtopics": [
             (
-                "Direct-to-Chip (DLC) microchannel cold plates & manifold hydraulics",
+                "AI accelerators, GPUs, TPUs, NPUs, custom ASICs & wafer-scale engines",
                 re.compile(
-                    r"\b(direct-to-chip|direct\s+liquid\s+cooling|\bDLC\b.*?(?:cool|cold\s*plate|rack)|microchannel\s+cold\s*plate|cold\s*plate|manifold\s+hydraulics|micro-?channel\s+heat\s+sink)\b",
+                    r"\b(AI\s+accelerator|\bGPU\b|\bTPU\b|\bNPU\b|custom\s+ASIC|wafer-scale\s+engine|inference\s+chip|training\s+chip|tensor\s+core|systolic\s+array)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+        ],
+    },
+    {
+        "domain": "memory",
+        "bottleneck": "memory bandwidth",
+        "subtopics": [
+            (
+                "HBM, DRAM, SRAM, MRAM/ReRAM & memory-wall architectures",
+                re.compile(
+                    r"\b(\bHBM[234eE]*\b|high\s+bandwidth\s+memory|\bDRAM\b|\bSRAM\b|\bMRAM\b|\bReRAM\b|memory\s+bandwidth|memory\s+wall|LPDDR[56]\w*|GDDR[67]\w*)\b",
                     re.IGNORECASE,
                 ),
             ),
             (
-                "Single-phase & two-phase liquid immersion cooling (synthetic dielectric fluids)",
+                "HBM4 & HBM4e logic base dies (TSMC N4/N3) & 2,048-bit wide memory interfaces",
+                re.compile(
+                    r"\b(HBM4e?|2,?048-bit\s+(?:memory|interface|HBM)|custom\s+(?:HBM\s+)?base\s+die|logic\s+base\s+die|hybrid\s+bonding.*?HBM)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+            (
+                "Compute Express Link (CXL 3.0 / 3.1) memory pooling, fabric switches & resource disaggregation",
+                re.compile(
+                    r"\b(\bCXL\b(?:\s*3(?:\.[01])?)?|compute\s+express\s+link|memory\s+pooling|CXL\s+(?:switch|fabric|disaggregation|expander)|cache-coherent\s+memory)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+            (
+                "Processing-in-Memory (PIM) & Near-Memory Compute in DRAM banks/buffer dies",
+                re.compile(
+                    r"\b(processing-in-memory|\bPIM\b.*?(?:DRAM|HBM|memory|bank|buffer\s+die)|near-memory\s+comput(?:e|ing)|in-memory\s+comput(?:e|ing)|in-DRAM\s+compute|HBM-PIM)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+        ],
+    },
+    {
+        "domain": "interconnect",
+        "bottleneck": "interconnect",
+        "subtopics": [
+            (
+                "Scale-up & scale-out fabrics (NVLink, InfiniBand, Ultra Ethernet, PCIe, SerDes, retimers, pluggable optics)",
+                re.compile(
+                    r"\b(NVLink|NVSwitch|InfiniBand|Ultra\s+Ethernet|optical\s+interconnect|silicon\s+photonics|pluggable\s+optics|optical\s+transceiver|\bSerDes\b|retimer|PCIe\s*[67])\b",
+                    re.IGNORECASE,
+                ),
+            ),
+            (
+                "Direct-drive All-Optical Circuit Switches (OCS) using MEMS 2D/3D mirror arrays",
+                re.compile(
+                    r"\b(optical\s+circuit\s+switch(?:ing|es)?|\bOCS\b.*?(?:MEMS|optical|mirror|fabric|cluster|spine)|MEMS\s+(?:2D|3D|mirror\s+array|optical\s+switch)|all-optical\s+switch(?:ing)?|E-O-E\s+conversion)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+            (
+                "51.2T and 102.4T switch ASICs co-packaged with optical engines (CPO)",
+                re.compile(
+                    r"\b(co-packaged\s+optics|\bCPO\b.*?(?:switch|ASIC|optical\s+engine|51\.2T|102\.4T|silicon\s+photonics)|(?:51\.2\s*T|102\.4\s*T)\s*(?:bps)?\s*(?:switch|ASIC|CPO|Ethernet)|optical\s+engine\s+co-packaged)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+        ],
+    },
+    {
+        "domain": "packaging",
+        "bottleneck": "manufacturing capacity",
+        "subtopics": [
+            (
+                "Chiplets, 2.5D/3D packaging, CoWoS, interposers, hybrid bonding & RDL",
+                re.compile(
+                    r"\b(chiplet|2\.5D\s+packaging|3D\s+packaging|CoWoS(?:-[SLR])?|SoIC|EMIB|Foveros|hybrid\s+bonding|redistribution\s+layer|\bRDL\b|silicon\s+interposer|advanced\s+packaging)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+            (
+                "Through-Glass Vias (TGV) with ultra-high aspect ratios & sub-10 um pitch on glass core substrates",
+                re.compile(
+                    r"\b(through-glass\s+via|\bTGV\b.*?(?:glass|via|substrate|interposer|pitch|aspect\s+ratio|laser)|sub-10\s*(?:µm|um|micron)\s+pitch|glass\s+core\s+substrate|glass\s+substrate)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+            (
+                "Fan-Out Panel-Level Packaging (FOPLP) & rectangular panel packaging economics",
+                re.compile(
+                    r"\b(fan-out\s+panel-level\s+packaging|\bFOPLP\b|panel-level\s+packaging|\bPLP\b.*?(?:wafer|packaging|substrate|panel|CoWoS)|rectangular\s+panel\s+packaging)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+            (
+                "Coefficient of Thermal Expansion (CTE) matching & organic ABF substrate warpage mitigation",
+                re.compile(
+                    r"\b(coefficient\s+of\s+thermal\s+expansion|\bCTE\b\s+mismatch|\bCTE\b\s+matching|glass\s+interposer|\bABF\b\s+(?:substrate|warpage)|substrate\s+warpage)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+        ],
+    },
+    {
+        "domain": "manufacturing",
+        "bottleneck": "manufacturing capacity",
+        "subtopics": [
+            (
+                "Semiconductor lithography (EUV/High-NA), deposition, etch, metrology, advanced nodes, wafer capacity, yield & EDA",
+                re.compile(
+                    r"\b(lithography|High-NA\s+EUV|\bEUV\b|atomic\s+layer\s+deposition|plasma\s+etch|metrology|gate-all-around|\bGAA\b|CFET|wafer\s+capacity|fab\s+yield|\bEDA\b\s+tool|physical\s+design)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+            (
+                "CVD synthetic diamond substrates & thermal spreaders (~2,000 W/m*K) bonded directly to silicon",
+                re.compile(
+                    r"\b(CVD\s+diamond|chemical\s+vapor\s+deposition\s+diamond|diamond\s+(?:heat\s+spreader|substrate|wafer|thermal\s+spreader|interposer)|diamond-on-silicon|synthetic\s+diamond\s+cooling)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+            (
+                "Ultra-Wide Bandgap (UWBG) materials: Gallium Oxide (Ga2O3) & Aluminum Nitride (AlN) power/thermal electronics",
+                re.compile(
+                    r"\b(gallium\s+oxide|Ga2O3|beta-Ga2O3|aluminum\s+nitride|aluminium\s+nitride|\bAlN\b\s+(?:substrate|wafer|thin\s+film|interlayer|thermal|power)|ultra-wide\s+bandgap|\bUWBG\b|compound\s+semiconductor)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+        ],
+    },
+    {
+        "domain": "power cooling",
+        "bottleneck": "power / thermal",
+        "subtopics": [
+            (
+                "Direct-to-Chip (DLC) microchannel cold plates & manifold hydraulics",
+                re.compile(
+                    r"\b(direct-to-chip|direct\s+liquid\s+cooling|\bDLC\b.*?(?:cool|cold\s*plate|rack)|microchannel\s+cold\s*plate|cold\s*plate|manifold\s+hydraulics|micro-?channel\s+heat\s+sink|liquid\s+cooling)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+            (
+                "Single-phase & two-phase liquid immersion cooling using synthetic dielectric fluids",
                 re.compile(
                     r"\b(single-phase\s+immersion|two-phase\s+(?:liquid\s+)?immersion|immersion\s+cooling|dielectric\s+fluid|fluorochemical\s+coolant|boiling\s+heat\s+transfer.*?dielectric)\b",
                     re.IGNORECASE,
@@ -239,101 +380,16 @@ FRONTIER_TOPICS = [
                 ),
             ),
             (
-                "In-silicon microfluidic cooling channels etched into active compute dies",
+                "In-silicon microfluidic cooling channels etched directly into active compute dies",
                 re.compile(
                     r"\b(in-silicon\s+microfluidic|microfluidic\s+cooling|backside\s+microfluidic|embedded\s+microchannel\s+cooling|intradie\s+cooling|direct-on-die\s+microfluidic|silicon\s+microchannel)\b",
                     re.IGNORECASE,
                 ),
             ),
-        ],
-    },
-    {
-        "id": "glass_substrates_plp",
-        "title": "Glass Substrates & Panel-Level Packaging (PLP)",
-        "category": "Advanced Packaging & Substrates",
-        "hardware_domain": "packaging",
-        "bottleneck_addressed": "manufacturing capacity",
-        "why_it_complies": (
-            "As multi-die reticle sizes expand (dual compute dies surrounded by 8-12 HBM stacks), "
-            "standard organic Ajinomoto Build-up Film (ABF) substrates suffer from thermal warpage, "
-            "trace density limits, and electrical parasitic losses. Glass core substrates represent "
-            "the next physical substrate transition."
-        ),
-        "subtopics": [
-            (
-                "Through-Glass Vias (TGV) with ultra-high aspect ratios & sub-10 um pitch",
-                re.compile(
-                    r"\b(through-glass\s+via|\bTGV\b.*?(?:glass|via|substrate|interposer|pitch|aspect\s+ratio|laser)|sub-10\s*(?:µm|um|micron)\s+pitch|glass\s+core\s+substrate|glass\s+substrate)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "Fan-Out Panel-Level Packaging (FOPLP) & rectangular panel economics",
-                re.compile(
-                    r"\b(fan-out\s+panel-level\s+packaging|\bFOPLP\b|panel-level\s+packaging|\bPLP\b.*?(?:wafer|packaging|substrate|panel|CoWoS)|rectangular\s+panel\s+packaging)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "Coefficient of Thermal Expansion (CTE) matching & ABF warpage mitigation",
-                re.compile(
-                    r"\b(coefficient\s+of\s+thermal\s+expansion|\bCTE\b\s+mismatch|\bCTE\b\s+matching|glass\s+interposer|\bABF\b\s+(?:substrate|warpage)|substrate\s+warpage)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-        ],
-    },
-    {
-        "id": "nextgen_memory_near_memory_compute",
-        "title": "Next-Generation Memory Hierarchies & Near-Memory Compute",
-        "category": "Memory & Near-Memory Compute",
-        "hardware_domain": "memory",
-        "bottleneck_addressed": "memory bandwidth",
-        "why_it_complies": (
-            "Frontier LLM inference is fundamentally memory-bandwidth bound (FLOP-to-byte imbalances). "
-            "The transition to custom base dies and memory-pooling interconnects is shifting memory "
-            "from a passive commodity to active compute silicon."
-        ),
-        "subtopics": [
-            (
-                "HBM4 & HBM4e logic base dies (TSMC N4/N3) & 2,048-bit wide interfaces",
-                re.compile(
-                    r"\b(HBM4e?|2,?048-bit\s+(?:memory|interface|HBM)|custom\s+(?:HBM\s+)?base\s+die|logic\s+base\s+die|hybrid\s+bonding.*?HBM)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "Compute Express Link (CXL 3.0 / 3.1) memory pooling, fabric switches & disaggregation",
-                re.compile(
-                    r"\b(CXL\s*3(?:\.[01])?|compute\s+express\s+link|CXL\s+(?:memory\s+pooling|fabric\s+switch|switch|disaggregation|expander)|memory\s+pooling\s+fabric|cache-coherent\s+memory\s+disaggregation)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "Processing-in-Memory (PIM) & Near-Memory Compute in DRAM banks/buffer dies",
-                re.compile(
-                    r"\b(processing-in-memory|\bPIM\b.*?(?:DRAM|HBM|memory|bank|buffer\s+die)|near-memory\s+comput(?:e|ing)|in-DRAM\s+compute|HBM-PIM|buffer-die\s+compute)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-        ],
-    },
-    {
-        "id": "rack_hv_power_delivery_pol",
-        "title": "Rack-Scale High-Voltage Power Delivery & Point-of-Load (PoL) Conversion",
-        "category": "Rack Power & PoL Conversion",
-        "hardware_domain": "power cooling",
-        "bottleneck_addressed": "power",
-        "why_it_complies": (
-            "Delivering thousands of amperes at sub-1.0V to silicon packages creates unsustainable "
-            "resistive (I^2R) heat losses across traditional 12V and 48V copper busbars. Power delivery "
-            "network (PDN) design inside the rack is as critical as power delivery to the building."
-        ),
-        "subtopics": [
             (
                 "400V / 800V DC high-voltage server rack busbar architectures",
                 re.compile(
-                    r"\b((?:\+/-\s*)?400\s*V(?:\s*DC)?|(?:\+/-\s*)?800\s*V(?:\s*DC)?|high-voltage\s+(?:DC\s+)?rack\s+busbar|rack\s+busbar\s+architecture|ORv3\s+HPR|high\s+power\s+rack\s+busbar)\b",
+                    r"\b((?:\+/-\s*)?400\s*V(?:\s*DC)?|(?:\+/-\s*)?800\s*V(?:\s*DC)?|high-voltage\s+(?:DC\s+)?rack\s+busbar|rack\s+busbar\s+architecture|ORv3\s+HPR|high\s+power\s+rack\s+busbar|rack-scale\s+power)\b",
                     re.IGNORECASE,
                 ),
             ),
@@ -354,62 +410,80 @@ FRONTIER_TOPICS = [
         ],
     },
     {
-        "id": "uwbg_materials_cvd_diamond",
-        "title": "Ultra-Wide Bandgap Materials & Synthetic Diamond Thermal Spreaders",
-        "category": "UWBG & Diamond Materials",
-        "hardware_domain": "manufacturing",
-        "bottleneck_addressed": "thermal",
-        "why_it_complies": (
-            "Silicon's natural thermal conductivity (~150 W/m*K) forms a thermal bottleneck at the "
-            "junction layer. Advanced materials integrated into the wafer stack allow higher sustained "
-            "clock frequencies and current densities without thermal throttling."
-        ),
+        "domain": "robotics hardware",
+        "bottleneck": "robotics embodiment",
         "subtopics": [
             (
-                "CVD diamond substrates & heat spreaders (~2,000 W/m*K) bonded directly to silicon",
+                "Robotics hardware: actuators, sensors, dexterous hands, embodied AI & edge autonomy compute",
                 re.compile(
-                    r"\b(CVD\s+diamond|chemical\s+vapor\s+deposition\s+diamond|diamond\s+(?:heat\s+spreader|substrate|wafer|thermal\s+spreader|interposer)|diamond-on-silicon|synthetic\s+diamond\s+cooling)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "Gallium Oxide (Ga2O3) & Aluminum Nitride (AlN) ultra-wide bandgap power/thermal electronics",
-                re.compile(
-                    r"\b(gallium\s+oxide|Ga2O3|beta-Ga2O3|aluminum\s+nitride|aluminium\s+nitride|\bAlN\b\s+(?:substrate|wafer|thin\s+film|interlayer|thermal|power)|ultra-wide\s+bandgap|\bUWBG\b)\b",
+                    r"\b(robot(?:ic)?\s+(?:actuator|hand|gripper|sensor|dexterity|embodiment)|harmonic\s+drive|tactile\s+sensor|embodied\s+AI\s+hardware|humanoid\s+robot|edge\s+AI\s+chip|physical\s+autonomy)\b",
                     re.IGNORECASE,
                 ),
             ),
         ],
     },
     {
-        "id": "all_optical_switching_cpo",
-        "title": "All-Optical Circuit Switching (OCS) & Co-Packaged Switch Fabrics",
-        "category": "Optical Interconnect & CPO",
-        "hardware_domain": "interconnect",
-        "bottleneck_addressed": "interconnect",
-        "why_it_complies": (
-            "Clusters scaling to 100,000+ accelerators spend 15-20% of their power purely on optical "
-            "transceivers, electrical SerDes, and retimers. Eliminating electrical-optical-electrical "
-            "(E-O-E) conversions in switching fabrics is mandatory to sustain network scaling."
-        ),
+        "domain": "quantum / neuromorphic / photonic compute",
+        "bottleneck": "compute",
         "subtopics": [
             (
-                "Direct-drive Optical Circuit Switches (OCS) using MEMS 2D/3D mirror arrays",
+                "Quantum, neuromorphic & optical/photonic compute engines for AI infrastructure",
                 re.compile(
-                    r"\b(optical\s+circuit\s+switch(?:ing|es)?|\bOCS\b.*?(?:MEMS|optical|mirror|fabric|cluster|spine)|MEMS\s+(?:2D|3D|mirror\s+array|optical\s+switch)|all-optical\s+switch(?:ing)?|E-O-E\s+conversion)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "51.2T and 102.4T switch ASICs co-packaged with optical engines (CPO)",
-                re.compile(
-                    r"\b(co-packaged\s+optics|\bCPO\b.*?(?:switch|ASIC|optical\s+engine|51\.2T|102\.4T|silicon\s+photonics)|(?:51\.2\s*T|102\.4\s*T)\s*(?:bps)?\s*(?:switch|ASIC|CPO|Ethernet)|optical\s+engine\s+co-packaged)\b",
+                    r"\b(neuromorphic\s+(?:chip|compute|processor)|spiking\s+neural\s+network\s+chip|photonic\s+(?:compute|processor|tensor)|optical\s+neural\s+network|quantum\s+(?:accelerator|processor|interconnect))\b",
                     re.IGNORECASE,
                 ),
             ),
         ],
     },
 ]
+
+
+def match_hardware_signals(item):
+    """Scan item text equally across all 8 hardware domains (both original and newly integrated topics)."""
+    haystack = " ".join(
+        [
+            clean_text(item.get("title", "")),
+            clean_text(item.get("raw_summary", "")),
+            clean_text(item.get("category", "")),
+        ]
+    )
+    if not haystack:
+        return []
+
+    matched = []
+    for entry in HARDWARE_DOMAIN_TAXONOMY:
+        subs = [sub_name for sub_name, pat in entry["subtopics"] if pat.search(haystack)]
+        if subs:
+            matched.append(
+                {
+                    "domain": entry["domain"],
+                    "bottleneck": entry["bottleneck"],
+                    "subtopics": subs,
+                }
+            )
+    return matched
+
+
+def enrich_item_with_hardware_signals(item):
+    """Tag candidate item in-place across all 8 hardware domains (old + new equally) prior to capping and LLM classification."""
+    matches = match_hardware_signals(item)
+    if not matches:
+        return item
+
+    domains = []
+    subtopics = []
+    for m in matches:
+        if m["domain"] not in domains:
+            domains.append(m["domain"])
+        for s in m["subtopics"]:
+            if s not in subtopics:
+                subtopics.append(s)
+
+    item["hardware_signal_domains"] = " | ".join(domains)
+    item["hardware_signal_subtopics"] = " ; ".join(subtopics)
+    item["hardware_domain_hint"] = matches[0]["domain"]
+    item["bottleneck_hint"] = matches[0]["bottleneck"]
+    return item
 
 REQUEST_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
@@ -546,88 +620,28 @@ def chunk_list(values, size):
         yield values[start:start + size]
 
 
-def match_frontier_topics(item):
-    """Deterministically match an item against the 6 priority frontier hardware domains and sub-topics."""
-    haystack = " ".join(
-        [
-            clean_text(item.get("title", "")),
-            clean_text(item.get("raw_summary", "")),
-            clean_text(item.get("category", "")),
-            clean_text(item.get("source", "")),
-        ]
-    )
-    if not haystack:
-        return []
-
-    matches = []
-    for topic in FRONTIER_TOPICS:
-        matched_subs = []
-        for sub_name, pattern in topic["subtopics"]:
-            if pattern.search(haystack):
-                matched_subs.append(sub_name)
-        if matched_subs:
-            matches.append(
-                {
-                    "id": topic["id"],
-                    "title": topic["title"],
-                    "category": topic["category"],
-                    "hardware_domain": topic["hardware_domain"],
-                    "bottleneck_addressed": topic["bottleneck_addressed"],
-                    "why_it_complies": topic["why_it_complies"],
-                    "subtopics": matched_subs,
-                }
-            )
-    return matches
-
-
-def enrich_item_with_frontier_topics(item):
-    """Annotate candidate item in-place with matched frontier topics and sub-topics prior to queueing/LLM."""
-    matches = match_frontier_topics(item)
-    if not matches:
-        return item
-
-    topic_titles = [m["title"] for m in matches]
-    subtopic_names = []
-    for m in matches:
-        for s in m["subtopics"]:
-            if s not in subtopic_names:
-                subtopic_names.append(s)
-
-    item["frontier_topic"] = " | ".join(topic_titles)
-    item["frontier_subtopics"] = " ; ".join(subtopic_names)
-    item["frontier_domain_hint"] = matches[0]["hardware_domain"]
-    item["frontier_bottleneck_hint"] = matches[0]["bottleneck_addressed"]
-    item["frontier_category_hint"] = matches[0]["category"]
-
-    existing_summary = clean_text(item.get("raw_summary", ""))
-    frontier_tag = f"[Frontier Hardware Match: {item['frontier_topic']} -> {item['frontier_subtopics']}]"
-    if frontier_tag not in existing_summary:
-        item["raw_summary"] = f"{frontier_tag} {existing_summary}"[:2200]
-    return item
-
-
 def fair_cap_items(items, max_items):
-    """Apply a global cap without letting one source dominate the run, prioritizing Frontier Topic matches within each source."""
+    """Apply a global cap without letting one source dominate the run, treating all sources and all 8 hardware domains (old + new) equally."""
     for item in items:
-        enrich_item_with_frontier_topics(item)
+        enrich_item_with_hardware_signals(item)
 
     if max_items <= 0 or len(items) <= max_items:
         return items
 
-    grouped_priority = defaultdict(list)
-    grouped_standard = defaultdict(list)
+    grouped_signal = defaultdict(list)
+    grouped_other = defaultdict(list)
     source_order = []
     for item in items:
         source = item.get("source", "unknown")
-        if source not in grouped_priority and source not in grouped_standard:
+        if source not in grouped_signal and source not in grouped_other:
             source_order.append(source)
-        if item.get("frontier_topic"):
-            grouped_priority[source].append(item)
+        if item.get("hardware_signal_domains"):
+            grouped_signal[source].append(item)
         else:
-            grouped_standard[source].append(item)
+            grouped_other[source].append(item)
 
     grouped = {
-        source: deque(grouped_priority[source] + grouped_standard[source])
+        source: deque(grouped_signal[source] + grouped_other[source])
         for source in source_order
     }
 
@@ -679,8 +693,6 @@ def init_db():
             hardware_domain TEXT,
             bottleneck_addressed TEXT,
             specific_tech TEXT,
-            frontier_topic TEXT,
-            frontier_subtopics TEXT,
             relevance_score REAL,
             why_it_matters TEXT,
             ai_revolution_thesis TEXT,
@@ -737,8 +749,6 @@ def init_db():
         "hardware_domain": "TEXT",
         "bottleneck_addressed": "TEXT",
         "ai_revolution_thesis": "TEXT",
-        "frontier_topic": "TEXT",
-        "frontier_subtopics": "TEXT",
     }
     for column_name, column_type in wanted_columns.items():
         if column_name not in existing_columns:
@@ -869,12 +879,11 @@ def insert_item(item, sent_alert=0, digest_sent=0):
             INSERT INTO items (
                 url, content_fingerprint, title, source, source_type, published_at, category,
                 hardware_domain, bottleneck_addressed, specific_tech,
-                frontier_topic, frontier_subtopics,
                 relevance_score, why_it_matters, ai_revolution_thesis,
                 telegram_summary, raw_summary, raw_llm_json,
                 sent_alert, digest_sent, created_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 normalize_url(item.get("url", "")),
@@ -887,8 +896,6 @@ def insert_item(item, sent_alert=0, digest_sent=0):
                 item.get("hardware_domain", ""),
                 item.get("bottleneck_addressed", ""),
                 item.get("specific_tech", ""),
-                item.get("frontier_topic", ""),
-                item.get("frontier_subtopics", ""),
                 safe_float(item.get("relevance_score", 0)),
                 item.get("why_it_matters", ""),
                 item.get("ai_revolution_thesis", ""),
@@ -998,10 +1005,6 @@ def format_item_html(row, include_score=True):
         lines.append(f"<b>{tech}</b>")
     lines.append(f"<a href=\"{url}\">{title}</a>")
     lines.append(f"Source: {source}")
-    frontier_topic = html_escape(row["frontier_topic"] if "frontier_topic" in row.keys() else "")
-    frontier_subs = html_escape(row["frontier_subtopics"] if "frontier_subtopics" in row.keys() else "")
-    if frontier_topic:
-        lines.append(f"Frontier Pillar: <b>{frontier_topic}</b>" + (f" ({frontier_subs})" if frontier_subs else ""))
     if domain or bottleneck:
         lines.append(f"Layer: {domain} · Bottleneck: {bottleneck}")
     if summary:
@@ -1839,6 +1842,111 @@ def fetch_universal_html_scrapers():
     return all_scraped_items
 
 
+def fetch_sec_edgar():
+    """Search all SEC EDGAR filings via EFTS full-text search for AI hardware signals."""
+    items = []
+    if not ENABLE_SEC_EDGAR or not SEC_EFTS_QUERY:
+        return items
+
+    headers = {
+        "User-Agent": SEC_USER_AGENT,
+        "Accept": "application/json",
+    }
+    now_utc = utc_now()
+    start_dt = (now_utc - dt.timedelta(days=max(1, SEC_LOOKBACK_DAYS))).strftime("%Y-%m-%d")
+    end_dt = now_utc.strftime("%Y-%m-%d")
+    allowed_forms = {f.strip().upper() for f in SEC_FORMS if f.strip()}
+
+    params = {
+        "q": SEC_EFTS_QUERY,
+        "startdt": start_dt,
+        "enddt": end_dt,
+    }
+    if allowed_forms:
+        params["forms"] = ",".join(sorted(allowed_forms))
+
+    url = "https://efts.sec.gov/LATEST/search-index"
+
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=35)
+        if response.status_code != 200:
+            log.warning(f"SEC EFTS issue: {response.status_code} {response.text[:160]}")
+            return items
+
+        data = response.json() or {}
+        if "errorType" in data:
+            log.warning(f"SEC EFTS query error: {data.get('errorMessage', data.get('errorType'))}")
+            return items
+
+        hits = (data.get("hits") or {}).get("hits") or []
+        seen_accessions = set()
+
+        for hit in hits:
+            if len(items) >= SEC_MAX_ITEMS_PER_FETCH:
+                break
+
+            src = hit.get("_source") or {}
+            adsh = clean_text(src.get("adsh", ""))
+            if not adsh or adsh in seen_accessions:
+                continue
+
+            form = clean_text(src.get("form", "")).upper()
+            root_forms = [clean_text(rf).upper() for rf in (src.get("root_forms") or [])]
+            if allowed_forms and form not in allowed_forms and not any(rf in allowed_forms for rf in root_forms):
+                continue
+
+            ciks = src.get("ciks") or []
+            if not ciks:
+                continue
+            cik_int = str(int(re.sub(r"\D", "", str(ciks[0])) or 0))
+            adsh_nodash = adsh.replace("-", "")
+            hit_id = hit.get("_id", "")
+            filename = hit_id.split(":", 1)[1] if ":" in hit_id else ""
+
+            if filename:
+                filing_url = normalize_url(f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{adsh_nodash}/{filename}")
+            else:
+                filing_url = normalize_url(f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{adsh_nodash}/{adsh}-index.htm")
+
+            display_names = src.get("display_names") or []
+            company_label = clean_text(display_names[0]) if display_names else f"CIK {ciks[0]}"
+            file_date = clean_text(src.get("file_date", ""))
+            period_ending = clean_text(src.get("period_ending", ""))
+            file_desc = clean_text(src.get("file_description", "") or src.get("file_type", ""))
+            sics = [clean_text(s) for s in (src.get("sics") or []) if s]
+            form_items = [clean_text(it) for it in (src.get("items") or []) if it]
+
+            seen_accessions.add(adsh)
+
+            title_desc = f": {file_desc}" if file_desc and file_desc.upper() != form else ""
+            title = f"{company_label} - Form {form}{title_desc} ({file_date})"
+
+            summary_parts = [f"Filer: {company_label}", f"Form: {form}", f"Filed: {file_date}"]
+            if period_ending:
+                summary_parts.append(f"Period: {period_ending}")
+            if sics:
+                summary_parts.append(f"SIC: {', '.join(sics)}")
+            if form_items:
+                summary_parts.append(f"8-K Items: {', '.join(form_items)}")
+            if file_desc:
+                summary_parts.append(f"Document: {file_desc}")
+
+            items.append({
+                "title": title,
+                "url": filing_url,
+                "source": "SEC EDGAR / Full-Text Search",
+                "source_type": "sec_filing",
+                "published_at": f"{file_date}T00:00:00+00:00" if file_date else utc_now().isoformat(),
+                "raw_summary": " | ".join(summary_parts)[:2200],
+            })
+
+        log.info(f"sec_edgar: {len(items)} AI-hardware filings matched via EFTS ({start_dt} to {end_dt})")
+    except Exception as exc:
+        log.error(f"SEC EDGAR EFTS exception: {repr(exc)}")
+
+    return items
+
+
 # =========================
 # Gemini classification
 # =========================
@@ -1878,7 +1986,9 @@ def classify_batch(candidates):
 
     compact_items = []
     for index, item in enumerate(candidates):
-        enrich_item_with_frontier_topics(item)
+        signals = match_hardware_signals(item)
+        matched_domains = ", ".join(s["domain"] for s in signals)
+        matched_subs = "; ".join(sub for s in signals for sub in s["subtopics"])
         compact_items.append(
             {
                 "index": index,
@@ -1888,81 +1998,41 @@ def classify_batch(candidates):
                 "summary": item.get("raw_summary", "")[:2200],
                 "url": item.get("url", "")[:400],
                 "published_at": item.get("published_at", "")[:80],
-                "matched_frontier_topic": item.get("frontier_topic", ""),
-                "matched_frontier_subtopics": item.get("frontier_subtopics", ""),
+                "detected_hardware_signals": f"{matched_domains} ({matched_subs})"[:350] if matched_subs else "",
             }
         )
 
     system_prompt = """
 You are a strict AI hardware revolution filter for a monitoring bot.
 Goal:
-Find only hardware, semiconductor, robotics embodiment, energy, datacenter, or physical infrastructure technologies that could materially improve the AI scaling curve, AI training, AI inference, robotics, or AI deployment.
+Find only hardware, semiconductor, robotics embodiment, energy, datacenter, or physical infrastructure technologies that could materially improve the AI scaling curve, AI training, AI inference, robotics, or AI deployment. Treat all sources and all physical hardware layers below with equal importance.
 
-PRIORITY FRONTIER HARDWARE PILLARS (Mandatory High-Signal Tracking Domains):
-Pay special attention to any item addressing the following 6 physical scaling bottlenecks and their core sub-topics:
-
-1. Advanced Thermal Management & Liquid/Immersion Cooling Systems
-   - Physical Bottleneck: Compute accelerator TDPs have exceeded 1,000 W per socket and are moving toward 2,000 W+, rendering air cooling physically unviable. Heat dissipation at the cold plate and facility loop is now a primary governor of cluster density.
-   - Core Sub-Topics:
-     * Direct-to-Chip (DLC) microchannel cold plates and manifold hydraulics.
-     * Single-phase and two-phase liquid immersion cooling using synthetic dielectric fluids.
-     * Liquid-to-Liquid and Liquid-to-Air Coolant Distribution Units (CDUs).
-     * In-silicon microfluidic cooling channels etched directly into the back of active compute dies.
-
-2. Glass Substrates & Panel-Level Packaging (PLP)
-   - Physical Bottleneck: As multi-die reticle sizes expand (e.g., dual compute dies surrounded by 8-12 HBM stacks), standard organic Ajinomoto Build-up Film (ABF) substrates suffer from thermal warpage, trace density limits, and electrical parasitic losses. Glass core substrates represent the next physical substrate transition.
-   - Core Sub-Topics:
-     * Through-Glass Vias (TGV) with ultra-high aspect ratios and sub-10 um pitch.
-     * Fan-Out Panel-Level Packaging (FOPLP) moving packaging economics from 300 mm round wafers to large rectangular panels.
-     * Coefficient of Thermal Expansion (CTE) matching between silicon dies, glass interposers, and board assemblies.
-
-3. Next-Generation Memory Hierarchies & Near-Memory Compute
-   - Physical Bottleneck: Frontier LLM inference is fundamentally memory-bandwidth bound (FLOP-to-byte imbalances). The transition to custom base dies and memory-pooling interconnects is shifting memory from a passive commodity to active compute silicon.
-   - Core Sub-Topics:
-     * HBM4 & HBM4e: Migration from standard DRAM base dies to advanced logic nodes (such as TSMC N4/N3) for 2,048-bit wide memory interfaces.
-     * Compute Express Link (CXL 3.0 / 3.1): Memory pooling, fabric switches, and cache-coherent hardware resource disaggregation across server nodes.
-     * Processing-in-Memory (PIM) & Near-Memory Compute: Integrating arithmetic logic directly into DRAM banks or buffer dies to reduce data movement latency.
-
-4. Rack-Scale High-Voltage Power Delivery & Point-of-Load (PoL) Conversion
-   - Physical Bottleneck: Delivering thousands of amperes at sub-1.0V to silicon packages creates unsustainable resistive (I^2R) heat losses across traditional 12V and 48V copper busbars. Power delivery network (PDN) design inside the rack is as critical as power delivery to the building.
-   - Core Sub-Topics:
-     * 400V / 800V DC high-voltage server rack busbar architectures.
-     * Vertical Power Delivery (VPD) and on-package Integrated Voltage Regulators (IVR) delivering power directly underneath the die.
-     * Gallium Nitride (GaN) and Silicon Carbide (SiC) point-of-load converter stages operating at multi-megahertz switching frequencies.
-
-5. Ultra-Wide Bandgap Materials & Synthetic Diamond Thermal Spreaders
-   - Physical Bottleneck: Silicon's natural thermal conductivity (~150 W/m*K) forms a thermal bottleneck at the junction layer. Advanced materials integrated into the wafer stack allow higher sustained clock frequencies and current densities without thermal throttling.
-   - Core Sub-Topics:
-     * Chemical Vapor Deposition (CVD) diamond substrates and heat spreaders (~2,000 W/m*K) bonded directly to silicon.
-     * Gallium Oxide (Ga2O3) and aluminum nitride (AlN) for extreme high-voltage, high-heat power electronics.
-
-6. All-Optical Circuit Switching (OCS) & Co-Packaged Switch Fabrics
-   - Physical Bottleneck: Clusters scaling to 100,000+ accelerators spend 15-20% of their power purely on optical transceivers, electrical SerDes, and retimers. Eliminating electrical-optical-electrical (E-O-E) conversions in switching fabrics is mandatory to sustain network scaling.
-   - Core Sub-Topics:
-     * Direct-drive optical circuit switches (OCS) using micro-electro-mechanical system (MEMS) 2D/3D mirror arrays.
-     * 51.2T and 102.4T switch ASICs co-packaged with optical engines (CPO).
-
-Additional Relevant Physical Hardware Layers:
+Relevant ONLY when the item has concrete technical substance about at least one physical/hardware layer:
 - AI accelerators: GPU, TPU, NPU, ASIC, wafer-scale engine, inference chip, training chip.
-- Semiconductor manufacturing: lithography (EUV/High-NA), deposition, etch, metrology, advanced nodes, wafer capacity, yield, EDA or physical design that directly affects chips.
+- Memory & near-memory compute: HBM, HBM4 & HBM4e (migration from standard DRAM base dies to advanced logic nodes such as TSMC N4/N3 for 2,048-bit wide memory interfaces), DRAM, SRAM, MRAM/ReRAM, Compute Express Link (CXL 3.0 / 3.1 memory pooling, fabric switches, and cache-coherent hardware resource disaggregation across server nodes), memory bandwidth, memory wall, Processing-in-Memory (PIM) and near-memory or in-memory compute (integrating arithmetic logic directly into DRAM banks or buffer dies to reduce data movement latency).
+- Interconnect & optical switching fabrics: NVLink-like fabrics, Ethernet/InfiniBand hardware, optical interconnect, silicon photonics, co-packaged optics (CPO, including 51.2T and 102.4T switch ASICs co-packaged with optical engines), All-Optical Circuit Switching (direct-drive OCS using MEMS 2D/3D mirror arrays to eliminate electrical-optical-electrical E-O-E conversions), pluggable optics, transceivers, SerDes, retimers, switches.
+- Advanced packaging & substrates: chiplets, 2.5D/3D packaging, CoWoS-like packaging, interposers, glass core substrates and Through-Glass Vias (TGV with ultra-high aspect ratios and sub-10 um pitch), Fan-Out Panel-Level Packaging (FOPLP moving packaging economics from 300 mm round wafers to large rectangular panels), Coefficient of Thermal Expansion (CTE) matching between silicon dies, glass interposers, and board assemblies (mitigating organic ABF substrate warpage and parasitic losses), hybrid bonding, RDL.
+- Semiconductor manufacturing & advanced wafer materials: lithography (EUV/High-NA), deposition, etch, metrology, advanced nodes, compound and ultra-wide bandgap (UWBG) semiconductors (Gallium Oxide / Ga2O3 and aluminum nitride / AlN for extreme high-voltage, high-heat power electronics), Chemical Vapor Deposition (CVD) synthetic diamond substrates and heat spreaders (~2,000 W/m*K bonded directly to silicon to overcome junction-layer thermal bottlenecks), wafer capacity, yield, EDA or physical design that directly affects chips.
+- Power delivery & thermal management: datacenter power delivery, Rack-Scale High-Voltage Power Delivery (400V / 800V DC server rack busbar architectures reducing resistive I^2R copper losses), Vertical Power Delivery (VPD) and on-package Integrated Voltage Regulators (IVR delivering power directly underneath the die), Gallium Nitride (GaN) and Silicon Carbide (SiC) point-of-load (PoL) converter stages operating at multi-megahertz switching frequencies, Direct-to-Chip (DLC) microchannel cold plates and manifold hydraulics, single-phase and two-phase liquid immersion cooling using synthetic dielectric fluids, Liquid-to-Liquid and Liquid-to-Air Coolant Distribution Units (CDUs), in-silicon microfluidic cooling channels etched directly into the backside of active compute dies, rack-scale power and energy efficiency for 1,000W-2,000W+ TDP AI compute.
 - Robotics hardware: sensors, actuators, robot hands, embodied AI hardware, embedded compute, edge AI hardware, physical autonomy systems.
 - Quantum/neuromorphic/photonic compute only if there is a clear AI compute or AI infrastructure angle.
+- SEC-filing items are relevant only if the title/summary clearly identifies a physical hardware, semiconductor, robotics, datacenter, power, cooling, packaging, substrate, materials, memory, or interconnect signal.
+
 Positive source-quality signals:
-- Concrete substance on any of the 6 Priority Frontier Hardware Pillars above (score 8-10 when accompanied by R&D breakthroughs, qualification, tape-outs, supply-chain adoption, or capacity expansion).
-- Supply-chain media or specialist semiconductor, power electronics, photonics, or HPC/datacenter publication.
+- SEC filing metadata, supply-chain media, or specialist semiconductor/HPC publication.
 - Production ramp, shipment, qualification, capacity expansion, standards adoption, or named technical bottleneck.
 
 Reject / mark irrelevant:
 - Software-only LLMs, agents, prompts, applications, SaaS, consumer AI products, app launches.
-- Generic company earnings, stock moves, crypto, regulation, marketing partnerships, layoffs, or funding rounds without specific hardware technology.
-- General academic AI papers with no hardware, robotics embodiment, infrastructure, materials, thermal/power, or physical compute contribution.
+- Generic company earnings, stock moves, crypto, regulation, marketing partnerships, layoffs, funding rounds, or SEC filings without specific hardware technology.
+- General academic AI papers with no hardware, robotics embodiment, infrastructure, or physical compute contribution.
 - Hype phrases like "AI-powered" unless the item explains the underlying hardware/infrastructure.
 
 Scoring:
 0-3 = not AI hardware/infrastructure.
 4-6 = some hardware mention but weak, vague, or not clearly AI-revolution relevant.
 7-8 = useful AI hardware/infrastructure signal with a clear bottleneck addressed.
-9-10 = high-signal breakthrough, production ramp, major technical shift, or ecosystem change likely to matter for AI scaling (especially across the 6 Priority Frontier Hardware Pillars).
+9-10 = high-signal breakthrough, production ramp, major technical shift, or ecosystem change likely to matter for AI scaling.
 
 Strict rule:
 Set relevant=true only when score >= 7 and the item clearly maps to a hardware/infrastructure bottleneck for AI.
@@ -1974,12 +2044,11 @@ Return only valid JSON using this schema:
       "index": 0,
       "relevant": true,
       "score": 8,
-      "category": "Thermal & Cooling / Glass Substrates & PLP / Memory & Near-Memory Compute / Rack Power & PoL / UWBG & Diamond Materials / Optical Interconnect & CPO / AI accelerator / other",
-      "frontier_topic": "Exact title of the matching Priority Frontier Hardware Pillar (1-6) if applicable, else empty string",
+      "category": "AI accelerator",
       "hardware_domain": "GPU / ASIC / memory / interconnect / packaging / manufacturing / power cooling / robotics hardware / other",
       "bottleneck_addressed": "compute / memory bandwidth / interconnect / power / thermal / manufacturing capacity / robotics embodiment / other",
-      "specific_tech": "Short concrete technology name (e.g., TGV glass core substrate, HBM4 N3 base die, 800V DC rack busbar, MEMS 3D OCS, CVD diamond heat spreader)",
-      "why_it_matters": "One or two factual sentences explaining the physical hardware reason.",
+      "specific_tech": "Short concrete technology name",
+      "why_it_matters": "One or two factual sentences explaining the hardware reason.",
       "ai_revolution_thesis": "One sentence on how this could improve AI capability, cost, latency, scale, or deployment.",
       "telegram_summary": "Short Telegram-ready summary."
     }
@@ -2089,22 +2158,15 @@ def classify_and_insert(candidates):
                 continue
 
             cap = LLM_TEXT_FIELD_MAX_CHARS
-            enrich_item_with_frontier_topics(original)
-            llm_frontier = clean_text(result.get("frontier_topic", ""))
-            resolved_frontier = llm_frontier or original.get("frontier_topic", "")
-            resolved_subtopics = original.get("frontier_subtopics", "")
-            resolved_domain = clean_text(result.get("hardware_domain", "")) or original.get("frontier_domain_hint", "")
-            resolved_bottleneck = clean_text(result.get("bottleneck_addressed", "")) or original.get("frontier_bottleneck_hint", "")
-            resolved_category = clean_text(result.get("category", "")) or original.get("frontier_category_hint", "")
-
+            enrich_item_with_hardware_signals(original)
+            resolved_domain = clean_text(result.get("hardware_domain", "")) or original.get("hardware_domain_hint", "")
+            resolved_bottleneck = clean_text(result.get("bottleneck_addressed", "")) or original.get("bottleneck_hint", "")
             item = {
                 **original,
-                "category": resolved_category[:cap],
+                "category": clean_text(result.get("category", ""))[:cap],
                 "hardware_domain": resolved_domain[:cap],
                 "bottleneck_addressed": resolved_bottleneck[:cap],
                 "specific_tech": clean_text(result.get("specific_tech", ""))[:cap],
-                "frontier_topic": resolved_frontier[:cap],
-                "frontier_subtopics": resolved_subtopics[:cap],
                 "relevance_score": score,
                 "why_it_matters": clean_text(result.get("why_it_matters", ""))[:cap],
                 "ai_revolution_thesis": clean_text(result.get("ai_revolution_thesis", ""))[:cap],
@@ -2160,6 +2222,7 @@ def fetch_all_sources() -> list:
         ("specialist_rss", fetch_specialist_rss),
         ("supply_chain_rss", fetch_supply_chain_rss),
         ("html_scraper", fetch_universal_html_scrapers),
+        ("sec_edgar", fetch_sec_edgar),
     ]
     all_items = []
     for name, fetcher in fetchers:
@@ -2226,7 +2289,7 @@ def fetch_and_enqueue():
         if not url:
             continue
         item["url"] = url
-        enrich_item_with_frontier_topics(item)
+        enrich_item_with_hardware_signals(item)
         fp = item_fingerprint(item)
         item["content_fingerprint"] = fp
 
@@ -2235,9 +2298,6 @@ def fetch_and_enqueue():
         if processed_url_exists(url) or processed_fingerprint_exists(fp):
             continue
         new_items.append((url, fp, item))
-
-    # Order frontier-matched candidates first so queue caps never drop priority hardware signals
-    new_items.sort(key=lambda tup: 0 if tup[2].get("frontier_topic") else 1)
 
     added = 0
     dropped = 0
@@ -2404,7 +2464,7 @@ def print_config():
     log.info(f"ENABLE_SPECIALIST_RSS: {ENABLE_SPECIALIST_RSS} feeds: {len(get_feed_specs('SPECIALIST_RSS_FEEDS', DEFAULT_SPECIALIST_RSS_FEEDS))} per feed: {SPECIALIST_RSS_MAX_ITEMS_PER_FEED}")
     log.info(f"ENABLE_SUPPLY_CHAIN_RSS: {ENABLE_SUPPLY_CHAIN_RSS} feeds: {len(get_feed_specs('SUPPLY_CHAIN_RSS_FEEDS', DEFAULT_SUPPLY_CHAIN_RSS_FEEDS))} per feed: {SUPPLY_CHAIN_RSS_MAX_ITEMS_PER_FEED}")
     log.info(f"ENABLE_HTML_SCRAPER: {ENABLE_HTML_SCRAPER} targets: {len(get_feed_specs('HTML_SCRAPER_TARGETS', DEFAULT_HTML_SCRAPER_TARGETS))} per site: {HTML_SCRAPER_MAX_ITEMS_PER_SITE}")
-    log.info(f"Frontier hardware pillars tracked (in-memory regex + LLM classifier): {len(FRONTIER_TOPICS)}")
+    log.info(f"ENABLE_SEC_EDGAR: {ENABLE_SEC_EDGAR} forms: {SEC_FORMS} lookback_days: {SEC_LOOKBACK_DAYS} max_items: {SEC_MAX_ITEMS_PER_FETCH}")
     log.info(f"Telegram token found: {bool(TELEGRAM_BOT_TOKEN)}")
     log.info(f"Telegram chat found: {bool(TELEGRAM_CHAT_ID)}")
     log.info(f"OpenRouter key found: {bool(OPENROUTER_API_KEY)}")
