@@ -249,7 +249,7 @@ DEFAULT_SEC_EFTS_QUERY = (
 SEC_EFTS_QUERY = os.getenv("SEC_EFTS_QUERY", DEFAULT_SEC_EFTS_QUERY).strip()
 
 # Topic-scoped SEC EFTS queries executed alongside SEC_EFTS_QUERY when ENABLE_SEC_FRONTIER_EXPANSION=true
-FRONTIER_SEC_EFTS_QUERIES = [
+DEFAULT_FRONTIER_SEC_EFTS_QUERIES = [
     (
         "Advanced Thermal Management & Liquid/Immersion Cooling Systems",
         '"direct-to-chip" OR "cold plate" OR "microchannel" OR "immersion cooling" OR "dielectric fluid" OR "coolant distribution unit" OR "microfluidic cooling"',
@@ -514,6 +514,10 @@ FRONTIER_TOPICS = [
             ),
         ],
     },
+]
+
+DEFAULT_ARXIV_FRONTIER_QUERIES = [
+    (topic["title"], topic["arxiv_query"]) for topic in FRONTIER_TOPICS
 ]
 
 REQUEST_HEADERS = {
@@ -1319,10 +1323,13 @@ def fetch_arxiv():
     if ENABLE_ARXIV_FRONTIER_SEARCH:
         seen_arxiv_urls = {it.get("url") for it in items if it.get("url")}
         frontier_added = 0
-        for topic in FRONTIER_TOPICS:
-            t_query = topic.get("arxiv_query", "")
+        frontier_arxiv_specs = get_feed_specs("ARXIV_FRONTIER_QUERIES", DEFAULT_ARXIV_FRONTIER_QUERIES)
+        topic_by_title = {t["title"].lower(): t for t in FRONTIER_TOPICS}
+        for topic_label, t_query in frontier_arxiv_specs:
             if not t_query:
                 continue
+            matched_meta = topic_by_title.get(topic_label.lower(), {})
+            cat_label = matched_meta.get("category", topic_label)
             t_params = {
                 "search_query": t_query,
                 "start": 0,
@@ -1333,16 +1340,16 @@ def fetch_arxiv():
             t_url = "https://export.arxiv.org/api/query?" + urlencode(t_params)
             t_entries = _fetch_arxiv_atom(t_url, max_retries=2, timeout=15)
             for entry in t_entries[:ARXIV_FRONTIER_MAX_RESULTS_PER_TOPIC]:
-                parsed_item = _parse_arxiv_entry(entry, f"Frontier: {topic['category']}")
+                parsed_item = _parse_arxiv_entry(entry, f"Frontier: {cat_label}")
                 if not parsed_item["url"] or parsed_item["url"] in seen_arxiv_urls:
                     continue
                 seen_arxiv_urls.add(parsed_item["url"])
-                parsed_item["frontier_topic"] = topic["title"]
+                parsed_item["frontier_topic"] = topic_label
                 enrich_item_with_frontier_topics(parsed_item)
                 items.append(parsed_item)
                 frontier_added += 1
             time.sleep(0.5)
-        log.info(f"arXiv frontier topic search: +{frontier_added} targeted preprints across 6 frontier domains")
+        log.info(f"arXiv frontier topic search: +{frontier_added} targeted preprints across {len(frontier_arxiv_specs)} frontier queries")
 
     return items
 
@@ -1411,8 +1418,7 @@ def fetch_hackernews():
         return items
 
     session = requests.Session()
-    workers = max(1, min(HN_FETCH_WORKERS, len(fresh_ids)))
-    with ThreadPoolExecutor(max_workers=workers) as pool:
+    workers = max(1, min(HN_FETCH_WORKERS, len(fresh_ids)))\n    with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = [pool.submit(_fetch_hn_item, session, sid) for sid in fresh_ids]
         for future in as_completed(futures):
             result = future.result()
@@ -2001,7 +2007,7 @@ def fetch_sec_edgar():
 
     query_plan = [("Base AI Hardware Query", SEC_EFTS_QUERY)]
     if ENABLE_SEC_FRONTIER_EXPANSION:
-        for topic_label, topic_q in FRONTIER_SEC_EFTS_QUERIES:
+        for topic_label, topic_q in get_feed_specs("FRONTIER_SEC_EFTS_QUERIES", DEFAULT_FRONTIER_SEC_EFTS_QUERIES):
             query_plan.append((topic_label, topic_q))
 
     seen_accessions = set()
@@ -2673,12 +2679,12 @@ def print_config():
     log.info(f"ENABLE_ARXIV: {ENABLE_ARXIV} categories: {ARXIV_CATEGORIES} per category: {ARXIV_RESULTS_PER_CATEGORY} workers: {ARXIV_FETCH_WORKERS}")
     log.info(f"ENABLE_HACKERNEWS: {ENABLE_HACKERNEWS} HN_NEW_STORIES_PER_RUN: {HN_NEW_STORIES_PER_RUN} workers: {HN_FETCH_WORKERS} high_water_mark: {get_hn_high_water_mark()}")
     log.info(f"ENABLE_TECHMEME: {ENABLE_TECHMEME} TECHMEME_MAX_ITEMS: {TECHMEME_MAX_ITEMS}")
-    log.info(f"ENABLE_ARXIV_FRONTIER_SEARCH: {ENABLE_ARXIV_FRONTIER_SEARCH} max_per_topic: {ARXIV_FRONTIER_MAX_RESULTS_PER_TOPIC} frontier_pillars: {len(FRONTIER_TOPICS)}")
+    log.info(f"ENABLE_ARXIV_FRONTIER_SEARCH: {ENABLE_ARXIV_FRONTIER_SEARCH} queries: {len(get_feed_specs('ARXIV_FRONTIER_QUERIES', DEFAULT_ARXIV_FRONTIER_QUERIES))} max_per_topic: {ARXIV_FRONTIER_MAX_RESULTS_PER_TOPIC}")
     log.info(f"ENABLE_SPECIALIST_RSS: {ENABLE_SPECIALIST_RSS} feeds: {len(get_feed_specs('SPECIALIST_RSS_FEEDS', DEFAULT_SPECIALIST_RSS_FEEDS))} per feed: {SPECIALIST_RSS_MAX_ITEMS_PER_FEED}")
     log.info(f"ENABLE_FRONTIER_TOPIC_RSS: {ENABLE_FRONTIER_TOPIC_RSS} feeds: {len(get_feed_specs('FRONTIER_TOPIC_RSS_FEEDS', DEFAULT_FRONTIER_TOPIC_RSS_FEEDS))} per feed: {FRONTIER_TOPIC_RSS_MAX_ITEMS_PER_FEED}")
     log.info(f"ENABLE_SUPPLY_CHAIN_RSS: {ENABLE_SUPPLY_CHAIN_RSS} feeds: {len(get_feed_specs('SUPPLY_CHAIN_RSS_FEEDS', DEFAULT_SUPPLY_CHAIN_RSS_FEEDS))} per feed: {SUPPLY_CHAIN_RSS_MAX_ITEMS_PER_FEED}")
     log.info(f"ENABLE_HTML_SCRAPER: {ENABLE_HTML_SCRAPER} targets: {len(get_feed_specs('HTML_SCRAPER_TARGETS', DEFAULT_HTML_SCRAPER_TARGETS))} per site: {HTML_SCRAPER_MAX_ITEMS_PER_SITE}")
-    log.info(f"ENABLE_SEC_EDGAR: {ENABLE_SEC_EDGAR} forms: {SEC_FORMS} lookback_days: {SEC_LOOKBACK_DAYS} max_items: {SEC_MAX_ITEMS_PER_FETCH} frontier_expansion: {ENABLE_SEC_FRONTIER_EXPANSION}")
+    log.info(f"ENABLE_SEC_EDGAR: {ENABLE_SEC_EDGAR} forms: {SEC_FORMS} lookback_days: {SEC_LOOKBACK_DAYS} max_items: {SEC_MAX_ITEMS_PER_FETCH} frontier_expansion: {ENABLE_SEC_FRONTIER_EXPANSION} frontier_queries: {len(get_feed_specs('FRONTIER_SEC_EFTS_QUERIES', DEFAULT_FRONTIER_SEC_EFTS_QUERIES))}")
     log.info(f"Telegram token found: {bool(TELEGRAM_BOT_TOKEN)}")
     log.info(f"Telegram chat found: {bool(TELEGRAM_CHAT_ID)}")
     log.info(f"OpenRouter key found: {bool(OPENROUTER_API_KEY)}")
