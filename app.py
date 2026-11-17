@@ -178,12 +178,10 @@ DEFAULT_SPECIALIST_RSS_FEEDS = [
     ("The Register HPC", "https://www.theregister.com/on_prem/headlines.atom"),
     ("ServeTheHome", "https://www.servethehome.com/feed/"),
     ("OCP Blog", "https://www.opencompute.org/blog/rss;;https://news.google.com/rss/search?q=%22Open+Compute+Project%22&hl=en-US&gl=US&ceid=US:en"),
-    ("Data Center Dynamics", "https://www.datacenterdynamics.com/en/rss/;;https://www.datacenterdynamics.com/rss/"),
     ("Power Electronics News", "https://www.powerelectronicsnews.com/feed/"),
     ("EE Times", "https://www.eetimes.com/feed/"),
     ("Blocks and Files", "https://www.blocksandfiles.com/feed/"),
     ("Chips and Cheese", "https://chipsandcheese.com/feed/"),
-    ("HPCwire", "https://www.hpcwire.com/feed/"),
 ]
 
 # Step 2: Asia/supply-chain layer
@@ -199,6 +197,8 @@ HTML_SCRAPER_MAX_ITEMS_PER_SITE = get_int("HTML_SCRAPER_MAX_ITEMS_PER_SITE", 12)
 
 DEFAULT_HTML_SCRAPER_TARGETS = [
     ("TrendForce News", "https://www.trendforce.com/news/;;/\\d{4}/\\d{2}/\\d{2}/"),
+    ("Data Center Dynamics", "https://www.datacenterdynamics.com/en/news/;;/en/(?:news|analysis|opinions|product-news)/[a-z0-9-]+"),
+    ("HPCwire", "https://www.hpcwire.com/;;/(?:20\\d{2}/\\d{2}/\\d{2}|off-the-wire)/[a-z0-9-]+"),
 ]
 
 # Step 3: SEC EDGAR polling — market-wide full-text search (EFTS)
@@ -489,6 +489,22 @@ REQUEST_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
     "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, text/html, application/json;q=0.9, */*;q=0.8",
     "Accept-Language": "en-US,en;q=0.5",
+}
+
+HTML_BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+    "Sec-Ch-Ua": '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
 }
 
 
@@ -1392,8 +1408,10 @@ def fetch_standard_rss(
       if wb_resp.status_code == 200:
         snapshots = wb_resp.json().get("archived_snapshots", {})
         if "closest" in snapshots and snapshots["closest"].get("available"):
-          snapshot_url = snapshots["closest"]["url"].replace(
-              "http://", "https://"
+          snapshot_url = re.sub(
+              r"/web/(\d+)/",
+              r"/web/\1id_/",
+              snapshots["closest"]["url"].replace("http://", "https://"),
           )
           log.info(
               f"Wayback snapshot found for {source_label or feed_url}."
@@ -1529,8 +1547,10 @@ def fetch_standard_rss_2(
       if wb_resp.status_code == 200:
         snapshots = wb_resp.json().get("archived_snapshots", {})
         if "closest" in snapshots and snapshots["closest"].get("available"):
-          snapshot_url = snapshots["closest"]["url"].replace(
-              "http://", "https://"
+          snapshot_url = re.sub(
+              r"/web/(\d+)/",
+              r"/web/\1id_/",
+              snapshots["closest"]["url"].replace("http://", "https://"),
           )
           log.info(
               f"Wayback snapshot found for {source_label or feed_url}."
@@ -1650,6 +1670,13 @@ def fetch_feed_specs(specs, source_type, max_items_per_feed):
         log.error(
             f"{source_type} issue for {label} / {candidate_url}: {repr(exc)}"
         )
+    if total_for_label == 0 and candidate_urls:
+      parsed_root = urlsplit(candidate_urls[0])
+      if parsed_root.scheme and parsed_root.netloc and "news.google.com" not in parsed_root.netloc:
+        root_url = f"{parsed_root.scheme}://{parsed_root.netloc}/"
+        log.info(f"{source_type}: RSS yielded 0 items for {label}; falling back to HTML scraper on {root_url}")
+        scraped_fallback = scrape_single_html_target(label, root_url, max_items_per_feed)
+        items.extend(scraped_fallback)
   return items
 
 
@@ -1676,6 +1703,13 @@ def fetch_feed_specs_2(specs, source_type, max_items_per_feed):
         log.error(
             f"{source_type} issue for {label} / {candidate_url}: {repr(exc)}"
         )
+    if total_for_label == 0 and candidate_urls:
+      parsed_root = urlsplit(candidate_urls[0])
+      if parsed_root.scheme and parsed_root.netloc and "news.google.com" not in parsed_root.netloc:
+        root_url = f"{parsed_root.scheme}://{parsed_root.netloc}/"
+        log.info(f"{source_type}: RSS yielded 0 items for {label}; falling back to HTML scraper on {root_url}")
+        scraped_fallback = scrape_single_html_target(label, root_url, max_items_per_feed)
+        items.extend(scraped_fallback)
   return items
 
 def fetch_webpage_summary_snippet(session, url, timeout=6):
@@ -1727,6 +1761,316 @@ def fetch_supply_chain_rss():
     specs = get_feed_specs("SUPPLY_CHAIN_RSS_FEEDS", DEFAULT_SUPPLY_CHAIN_RSS_FEEDS)
     return fetch_feed_specs(specs, "supply_chain_media", SUPPLY_CHAIN_RSS_MAX_ITEMS_PER_FEED)
 
+def _unwrap_wayback_url(url_str):
+    """Strip Wayback Machine /web/<timestamp>/ prefix if present so canonical domain links are preserved."""
+    if not url_str:
+        return ""
+    return re.sub(r"^https?://web\.archive\.org/web/\d+(?:id_|[a-z_]+)?/", "", url_str.strip())
+
+
+def _parse_html_articles(html_text, base_url, label, url_pattern, ignore_patterns, max_items):
+    """Extract article items from raw HTML via JSON-LD metadata and DOM anchor scanning."""
+    site_items = []
+    seen_urls = set()
+    base_netloc = urlsplit(base_url).netloc.lower().lstrip("www.")
+    soup = BeautifulSoup(html_text, "html.parser")
+
+    # Pass 1: Extract structured JSON-LD articles if embedded in the page
+    for script_tag in soup.find_all("script", type=re.compile(r"ld\+json", re.I)):
+        raw_json = script_tag.string or script_tag.get_text() or ""
+        if not raw_json.strip():
+            continue
+        try:
+            ld_data = json.loads(raw_json)
+        except Exception:
+            continue
+        ld_nodes = ld_data if isinstance(ld_data, list) else [ld_data]
+        expanded = []
+        for node in ld_nodes:
+            if isinstance(node, dict):
+                expanded.append(node)
+                if isinstance(node.get("@graph"), list):
+                    expanded.extend(n for n in node["@graph"] if isinstance(n, dict))
+                if isinstance(node.get("itemListElement"), list):
+                    for el in node["itemListElement"]:
+                        if isinstance(el, dict):
+                            expanded.append(el.get("item") if isinstance(el.get("item"), dict) else el)
+        for node in expanded:
+            if not isinstance(node, dict):
+                continue
+            raw_link = _unwrap_wayback_url(str(node.get("url") or node.get("@id") or ""))
+            title = clean_text(node.get("headline") or node.get("name") or "")
+            if not raw_link or len(title) < 15:
+                continue
+            full_url = urljoin(base_url, raw_link)
+            parsed_url = urlsplit(full_url)
+            if parsed_url.netloc.lower().lstrip("www.") != base_netloc:
+                continue
+            if url_pattern and not re.search(url_pattern, full_url):
+                continue
+            if not url_pattern and (ignore_patterns.search(parsed_url.path) or len(parsed_url.path.strip("/")) < 4):
+                continue
+            norm_url = normalize_url(full_url)
+            if norm_url in seen_urls:
+                continue
+            seen_urls.add(norm_url)
+            pub_date = clean_text(node.get("datePublished") or node.get("dateModified") or utc_now().isoformat())
+            summary = clean_text(node.get("description") or title)
+            site_items.append({
+                "title": title,
+                "url": norm_url,
+                "source": f"Web / {label}",
+                "source_type": "scraped_web",
+                "published_at": pub_date,
+                "category": "Hardware",
+                "raw_summary": summary[:2200] if summary else title,
+            })
+            if len(site_items) >= max_items:
+                return site_items
+
+    # Pass 2: Extract article links from <a href="..."> elements
+    for a in soup.find_all("a", href=True):
+        href = _unwrap_wayback_url(a["href"].strip())
+        if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
+            continue
+
+        full_url = _unwrap_wayback_url(urljoin(base_url, href))
+        parsed_url = urlsplit(full_url)
+
+        if parsed_url.netloc.lower().lstrip("www.") != base_netloc:
+            continue
+
+        if url_pattern:
+            if not re.search(url_pattern, full_url):
+                continue
+        else:
+            if ignore_patterns.search(parsed_url.path) or len(parsed_url.path.strip("/")) < 4:
+                continue
+
+        norm_url = normalize_url(full_url)
+        if norm_url in seen_urls:
+            continue
+
+        parent = a.find_parent(["article", "li", "div", "section"])
+        title = clean_text(a.get_text())
+        if len(title) < 15:
+            heading = a.find(["h1", "h2", "h3", "h4", "span"])
+            if heading:
+                title = clean_text(heading.get_text())
+        if len(title) < 15:
+            title = clean_text(a.get("title") or a.get("aria-label") or "")
+        if len(title) < 15 and parent:
+            parent_heading = parent.find(["h1", "h2", "h3", "h4"])
+            if parent_heading:
+                title = clean_text(parent_heading.get_text())
+        if len(title) < 15:
+            continue
+
+        seen_urls.add(norm_url)
+
+        pub_date = utc_now().isoformat()
+        date_match = re.search(r"/(20\d{2})[-/](\d{1,2})[-/](\d{1,2})", full_url)
+        if date_match:
+            y, m, d = date_match.groups()
+            pub_date = f"{y}-{int(m):02d}-{int(d):02d}T00:00:00+00:00"
+
+        summary = ""
+        category = "Hardware"
+        if parent:
+            if not date_match:
+                time_tag = parent.find("time")
+                if time_tag and time_tag.get("datetime"):
+                    pub_date = time_tag["datetime"]
+
+            p_tag = parent.find("p")
+            if p_tag:
+                summary = clean_text(p_tag.get_text())
+            else:
+                summary = clean_text(parent.get_text()).replace(title, "").strip()[:400]
+
+            cat_tag = parent.find("a", href=re.compile(r"/category/"))
+            if cat_tag:
+                category = clean_text(cat_tag.get_text())
+
+        site_items.append({
+            "title": title,
+            "url": norm_url,
+            "source": f"Web / {label}",
+            "source_type": "scraped_web",
+            "published_at": pub_date,
+            "category": category,
+            "raw_summary": summary[:2200] if summary else title,
+        })
+
+        if len(site_items) >= max_items:
+            break
+
+    return site_items
+
+
+def _scrape_wp_json_fallback(base_url, label, max_items):
+    """Fallback for WordPress sites (e.g. HPCwire) when HTML/RSS paths return 403."""
+    parsed = urlsplit(base_url)
+    wp_api_url = f"{parsed.scheme}://{parsed.netloc}/wp-json/wp/v2/posts?per_page={max_items}&_fields=link,title,excerpt,date_gmt"
+    headers = {**HTML_BROWSER_HEADERS, "Accept": "application/json,text/plain,*/*", "Referer": f"{parsed.scheme}://{parsed.netloc}/"}
+    try:
+        resp = requests.get(wp_api_url, headers=headers, timeout=15)
+        if resp.status_code != 200:
+            return []
+        posts = resp.json()
+        if not isinstance(posts, list):
+            return []
+        items = []
+        for post in posts[:max_items]:
+            link = normalize_url(str(post.get("link") or ""))
+            title_obj = post.get("title") or {}
+            raw_title = title_obj.get("rendered", "") if isinstance(title_obj, dict) else str(title_obj)
+            title = clean_text(re.sub(r"<[^>]+>", " ", raw_title))
+            if not link or len(title) < 10:
+                continue
+            excerpt_obj = post.get("excerpt") or {}
+            raw_excerpt = excerpt_obj.get("rendered", "") if isinstance(excerpt_obj, dict) else str(excerpt_obj)
+            summary = clean_text(re.sub(r"<[^>]+>", " ", raw_excerpt)) or title
+            pub_date = clean_text(post.get("date_gmt") or utc_now().isoformat())
+            if pub_date and not pub_date.endswith("Z") and "+" not in pub_date:
+                pub_date = f"{pub_date}+00:00"
+            items.append({
+                "title": title,
+                "url": link,
+                "source": f"Web / {label}",
+                "source_type": "scraped_web",
+                "published_at": pub_date,
+                "category": "Hardware",
+                "raw_summary": summary[:2200],
+            })
+        return items
+    except Exception:
+        return []
+
+
+def _scrape_wayback_html_fallback(base_url, label, url_pattern, ignore_patterns, max_items):
+    """Fallback that scrapes raw HTML from a recent Wayback Machine snapshot (id_ mode)."""
+    try:
+        wb_api_url = f"https://archive.org/wayback/available?url={base_url}"
+        wb_resp = requests.get(wb_api_url, timeout=15)
+        if wb_resp.status_code != 200:
+            return []
+        snapshots = (wb_resp.json() or {}).get("archived_snapshots") or {}
+        closest = snapshots.get("closest") or {}
+        if not closest.get("available") or not closest.get("url"):
+            return []
+        ts_str = str(closest.get("timestamp") or "")
+        if len(ts_str) >= 8:
+            try:
+                snap_dt = dt.datetime.strptime(ts_str[:8], "%Y%m%d").replace(tzinfo=dt.timezone.utc)
+                if (utc_now() - snap_dt).days > 7:
+                    return []
+            except Exception:
+                pass
+        snapshot_url = re.sub(
+            r"/web/(\d+)/",
+            r"/web/\1id_/",
+            closest["url"].replace("http://", "https://"),
+        )
+        snap_resp = requests.get(snapshot_url, headers=HTML_BROWSER_HEADERS, timeout=25)
+        if snap_resp.status_code != 200:
+            return []
+        return _parse_html_articles(snap_resp.text, base_url, label, url_pattern, ignore_patterns, max_items)
+    except Exception:
+        return []
+
+
+def _scrape_domain_index_fallback(base_url, label, max_items):
+    """Last-resort domain index scraper when Cloudflare blocks direct HTML, WP-JSON, and Wayback."""
+    clean_domain = urlsplit(base_url).netloc.lower().lstrip("www.")
+    if not clean_domain:
+        return []
+    query_url = f"https://news.google.com/rss/search?q=site:{clean_domain}+when:7d&hl=en-US&gl=US&ceid=US:en"
+    try:
+        resp = requests.get(query_url, headers=REQUEST_HEADERS, timeout=20)
+        if resp.status_code != 200:
+            return []
+        feed = feedparser.parse(resp.content)
+        items = []
+        for entry in getattr(feed, "entries", [])[:max_items]:
+            title = clean_text(entry.get("title", ""))
+            if " - " in title:
+                title_parts = title.rsplit(" - ", 1)
+                if len(title_parts[0]) >= 15:
+                    title = title_parts[0].strip()
+            link = normalize_url(entry.get("link", ""))
+            summary = clean_text(re.sub(r"<[^>]+>", " ", entry.get("summary", entry.get("description", ""))))
+            if not title or not link:
+                continue
+            items.append({
+                "title": title,
+                "url": link,
+                "source": f"Web / {label}",
+                "source_type": "scraped_web",
+                "published_at": entry.get("published", entry.get("updated", utc_now().isoformat())),
+                "category": "Hardware",
+                "raw_summary": summary[:2200] if summary else title,
+            })
+        return items
+    except Exception:
+        return []
+
+
+def scrape_single_html_target(label, target, max_items=None):
+    """Scrape a single HTML target spec ('URL;;regex' or 'URL') with 4-stage 403 resilience."""
+    max_items = max_items or HTML_SCRAPER_MAX_ITEMS_PER_SITE
+    ignore_patterns = re.compile(
+        r"/(about|contact|privacy|terms|login|signup|register|tag|category|author|cart|search|feed)/?",
+        re.IGNORECASE,
+    )
+    if ";;" in target:
+        base_url, url_pattern = target.split(";;", 1)
+        base_url, url_pattern = base_url.strip(), url_pattern.strip()
+    else:
+        base_url, url_pattern = target.strip(), None
+
+    parsed_base = urlsplit(base_url)
+    headers = {
+        **HTML_BROWSER_HEADERS,
+        "Referer": f"{parsed_base.scheme}://{parsed_base.netloc}/",
+    }
+
+    site_items = []
+    try:
+        resp = requests.get(base_url, headers=headers, timeout=20)
+        if resp.status_code == 200:
+            site_items = _parse_html_articles(
+                resp.text, base_url, label, url_pattern, ignore_patterns, max_items
+            )
+        else:
+            log.info(
+                f"html_scraper: direct fetch for '{label}' returned HTTP {resp.status_code}; trying fallbacks..."
+            )
+    except Exception as exc:
+        log.info(f"html_scraper: direct fetch exception for '{label}': {repr(exc)}; trying fallbacks...")
+
+    if not site_items:
+        site_items = _scrape_wp_json_fallback(base_url, label, max_items)
+        if site_items:
+            log.info(f"html_scraper: recovered {len(site_items)} items for '{label}' via WP REST API")
+
+    if not site_items:
+        site_items = _scrape_wayback_html_fallback(
+            base_url, label, url_pattern, ignore_patterns, max_items
+        )
+        if site_items:
+            log.info(f"html_scraper: recovered {len(site_items)} items for '{label}' via Wayback HTML snapshot")
+
+    if not site_items:
+        site_items = _scrape_domain_index_fallback(base_url, label, max_items)
+        if site_items:
+            log.info(f"html_scraper: recovered {len(site_items)} items for '{label}' via domain index fallback")
+
+    site_items.sort(key=lambda x: x["published_at"], reverse=True)
+    log.info(f"html_scraper: scraped {len(site_items)} items from '{label}'")
+    return site_items
+
+
 def fetch_universal_html_scrapers():
     """Fetches and parses articles from all sites defined in HTML_SCRAPER_TARGETS."""
     if not ENABLE_HTML_SCRAPER:
@@ -1735,107 +2079,10 @@ def fetch_universal_html_scrapers():
     targets = get_feed_specs("HTML_SCRAPER_TARGETS", DEFAULT_HTML_SCRAPER_TARGETS)
     all_scraped_items = []
 
-    ignore_patterns = re.compile(
-        r"/(about|contact|privacy|terms|login|signup|register|tag|category|author|cart|search|feed)/?", 
-        re.IGNORECASE
-    )
-
     for label, target in targets:
-        if ";;" in target:
-            base_url, url_pattern = target.split(";;", 1)
-            base_url, url_pattern = base_url.strip(), url_pattern.strip()
-        else:
-            base_url, url_pattern = target.strip(), None
-
-        site_items = []
-        seen_urls = set()
-        base_netloc = urlsplit(base_url).netloc.lower()
-
         try:
-            # 20-second timeout per site so one slow site never stalls the pipeline
-            resp = requests.get(base_url, headers=REQUEST_HEADERS, timeout=20)
-            if resp.status_code != 200:
-                log.warning(f"HTML scraper: '{label}' returned HTTP status {resp.status_code}")
-                continue
-
-            soup = BeautifulSoup(resp.text, "html.parser")
-
-            for a in soup.find_all("a", href=True):
-                href = a["href"].strip()
-                if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
-                    continue
-
-                full_url = urljoin(base_url, href)
-                parsed_url = urlsplit(full_url)
-
-                # Keep on the same domain
-                if parsed_url.netloc.lower() != base_netloc:
-                    continue
-
-                if url_pattern:
-                    if not re.search(url_pattern, full_url):
-                        continue
-                else:
-                    if ignore_patterns.search(parsed_url.path) or len(parsed_url.path.strip("/")) < 4:
-                        continue
-
-                norm_url = normalize_url(full_url)
-                if norm_url in seen_urls:
-                    continue
-
-                title = clean_text(a.get_text())
-                if len(title) < 15:
-                    heading = a.find(["h1", "h2", "h3", "h4"])
-                    if heading:
-                        title = clean_text(heading.get_text())
-                if len(title) < 15:
-                    continue
-
-                seen_urls.add(norm_url)
-
-                # Date extraction
-                pub_date = utc_now().isoformat()
-                date_match = re.search(r"/(20\d{2})[-/](\d{1,2})[-/](\d{1,2})", full_url)
-                if date_match:
-                    y, m, d = date_match.groups()
-                    pub_date = f"{y}-{int(m):02d}-{int(d):02d}T00:00:00+00:00"
-
-                parent = a.find_parent(["article", "li", "div", "section"])
-                summary = ""
-                category = "Hardware"
-                if parent:
-                    if not date_match:
-                        time_tag = parent.find("time")
-                        if time_tag and time_tag.get("datetime"):
-                            pub_date = time_tag["datetime"]
-
-                    p_tag = parent.find("p")
-                    if p_tag:
-                        summary = clean_text(p_tag.get_text())
-                    else:
-                        summary = clean_text(parent.get_text()).replace(title, "").strip()[:400]
-
-                    cat_tag = parent.find("a", href=re.compile(r"/category/"))
-                    if cat_tag:
-                        category = clean_text(cat_tag.get_text())
-
-                site_items.append({
-                    "title": title,
-                    "url": norm_url,
-                    "source": f"Web / {label}",
-                    "source_type": "scraped_web",
-                    "published_at": pub_date,
-                    "category": category,
-                    "raw_summary": summary[:2200] if summary else title,
-                })
-
-                if len(site_items) >= HTML_SCRAPER_MAX_ITEMS_PER_SITE:
-                    break
-
-            site_items.sort(key=lambda x: x["published_at"], reverse=True)
-            log.info(f"html_scraper: scraped {len(site_items)} items from '{label}'")
+            site_items = scrape_single_html_target(label, target, HTML_SCRAPER_MAX_ITEMS_PER_SITE)
             all_scraped_items.extend(site_items)
-
         except Exception as exc:
             log.error(f"html_scraper error scraping '{label}': {repr(exc)}")
 
