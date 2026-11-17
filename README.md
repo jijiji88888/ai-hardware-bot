@@ -3,9 +3,9 @@
 ## Role in the Two-Repository Pipeline
 
 1. **`jijiji88888/ai-hardware-bot` (Broad Internet Fetcher & Relevance Filter)**:
-   - Driven by `.env` switches (`ENABLE_*`), per-source caps (`*_MAX_ITEMS*`), and `Label=Spec|Label2=Spec2` specifications parsed via `get_feed_specs()` in `app.py`.
-   - Fetches candidate articles, filings, and preprints from the broad internet (`arXiv` category + targeted frontier keyword queries, `SEC EDGAR EFTS` base + 6 topic-scoped full-text queries, `Semiconductor Engineering`, `ServeTheHome`, `The Register HPC`, `OCP`, `Data Center Dynamics`, `Chips and Cheese`, `DIGITIMES`, `TrendForce`, `Techmeme`, `Hacker News`, and 6 targeted Frontier Topic RSS streams).
-   - Deterministically tags and prioritizes candidates across the **6 Priority Frontier Hardware Pillars** (`match_frontier_topics` / `enrich_item_with_frontier_topics`) before queue capping or LLM batching.
+   - Driven by `.env` switches (`ENABLE_*`), per-source caps (`*_MAX_ITEMS*`), `ARXIV_CATEGORIES`, and direct `Label=URL` feed/scraper specifications parsed via `get_feed_specs()` in `app.py` (with zero inefficient Google News or SEC EDGAR bulk keyword search queries).
+   - Fetches candidate articles and preprints from direct specialist and supply-chain sources (`arXiv` combined category feed across `cs.AR`, `cs.DC`, `cs.ET`, `cs.NI`, `cs.RO`, `cs.LG`, `eess.SP`, `eess.SY`, `eess.IV`, `physics.optics`, `physics.app-ph`, `cond-mat.mtrl-sci`, `physics.flu-dyn`; `Semiconductor Engineering`; `The Register HPC`; `ServeTheHome`; `OCP Blog`; `Data Center Dynamics`; `Power Electronics News`; `EE Times`; `Blocks and Files`; `Chips and Cheese`; `HPCwire`; `DIGITIMES Asia`; `TrendForce`; `Techmeme`; and `Hacker News`).
+   - Deterministically tags and prioritizes candidates across the **6 Priority Frontier Hardware Pillars** (`match_frontier_topics` / `enrich_item_with_frontier_topics`) in memory before queue capping or LLM batching.
    - Uses its OpenRouter LLM classifier (`classify_batch` in `app.py`) to evaluate domain relevance and extract structured fields (`hardware_domain`, `bottleneck_addressed`, `specific_tech`, `frontier_topic`, `frontier_subtopics`, `relevance_score`, `why_it_matters`, `ai_revolution_thesis`, `raw_summary`) into `agi_hardware_trends.db` (SQLite WAL mode).
 
 2. **[`ajsfgu9/tech-trend-researcher`](https://github.com/ajsfgu9/tech-trend-researcher) (Social Trend Researcher & Viral Feature Matcher)**:
@@ -14,40 +14,23 @@
      - **Output 1 (`trending_now`)**: What is trending right now across the research pipeline and why it is poised to gain traction.
      - **Output 2 (`database_viral_matches`)**: Whether any previously sorted item in `agi_hardware_trends.db` shares identical technical/narrative features (`bottleneck_addressed`, `specific_tech`, `hardware_domain`, `frontier_topic`, information asymmetry, and controversy triggers) to go viral online—listing the exact matching database items if `YES`, or outputting `NO` if none match.
 
-## 6 Priority Frontier Hardware Pillars Configured in `.env` & `app.py`
+## 6 Priority Frontier Hardware Pillars & Direct Source Mapping
 
 1. **Advanced Thermal Management & Liquid/Immersion Cooling Systems**
-   - *Why it complies*: Compute accelerator TDPs have exceeded 1,000 W per socket and are moving toward 2,000 W+, rendering air cooling physically unviable. Heat dissipation at the cold plate and facility loop is now a primary governor of cluster density.
-   - *Core sub-topics*:
-     - Direct-to-Chip (DLC) microchannel cold plates and manifold hydraulics.
-     - Single-phase and two-phase liquid immersion cooling using synthetic dielectric fluids.
-     - Liquid-to-Liquid and Liquid-to-Air Coolant Distribution Units (CDUs).
-     - In-silicon microfluidic cooling channels etched directly into the back of active compute dies.
+   - *Direct Sources*: `Data Center Dynamics`, `ServeTheHome`, `OCP Blog`, `HPCwire`, `The Register HPC`, `arXiv` (`physics.flu-dyn`, `physics.app-ph`, `cs.AR`, `cs.DC`).
+   - *Core sub-topics*: Direct-to-Chip (DLC) microchannel cold plates & manifold hydraulics; single-phase & two-phase liquid immersion cooling (synthetic dielectric fluids); Liquid-to-Liquid & Liquid-to-Air CDUs; in-silicon backside microfluidic cooling channels.
 2. **Glass Substrates & Panel-Level Packaging (PLP)**
-   - *Why it complies*: As multi-die reticle sizes expand (e.g., dual compute dies surrounded by 8–12 HBM stacks), standard organic Ajinomoto Build-up Film (ABF) substrates suffer from thermal warpage, trace density limits, and electrical parasitic losses. Glass core substrates represent the next physical substrate transition.
-   - *Core sub-topics*:
-     - Through-Glass Vias (TGV) with ultra-high aspect ratios and sub-10 µm pitch.
-     - Fan-Out Panel-Level Packaging (FOPLP) moving packaging economics from 300 mm round wafers to large rectangular panels.
-     - Coefficient of Thermal Expansion (CTE) matching between silicon dies, glass interposers, and board assemblies.
+   - *Direct Sources*: `Semiconductor Engineering`, `EE Times`, `DIGITIMES Asia`, `TrendForce`, `Chips and Cheese`, `arXiv` (`cond-mat.mtrl-sci`, `physics.app-ph`, `cs.AR`, `cs.ET`).
+   - *Core sub-topics*: Through-Glass Vias (TGV) with ultra-high aspect ratios & sub-10 µm pitch; Fan-Out Panel-Level Packaging (FOPLP) on rectangular panels; CTE matching & ABF warpage mitigation.
 3. **Next-Generation Memory Hierarchies & Near-Memory Compute**
-   - *Why it complies*: Frontier LLM inference is fundamentally memory-bandwidth bound (FLOP-to-byte imbalances). The transition to custom base dies and memory-pooling interconnects is shifting memory from a passive commodity to active compute silicon.
-   - *Core sub-topics*:
-     - HBM4 & HBM4e: Migration from standard DRAM base dies to advanced logic nodes (such as TSMC N4/N3) for 2,048-bit wide memory interfaces.
-     - Compute Express Link (CXL 3.0 / 3.1): Memory pooling, fabric switches, and cache-coherent hardware resource disaggregation across server nodes.
-     - Processing-in-Memory (PIM) & Near-Memory Compute: Integrating arithmetic logic directly into DRAM banks or buffer dies to reduce data movement latency.
+   - *Direct Sources*: `Blocks and Files`, `Semiconductor Engineering`, `Chips and Cheese`, `TrendForce`, `EE Times`, `ServeTheHome`, `arXiv` (`cs.AR`, `cs.DC`, `cs.ET`, `eess.SY`).
+   - *Core sub-topics*: HBM4 & HBM4e logic base dies (TSMC N4/N3) & 2,048-bit wide interfaces; Compute Express Link (CXL 3.0 / 3.1) memory pooling, fabric switches & disaggregation; Processing-in-Memory (PIM) & Near-Memory Compute.
 4. **Rack-Scale High-Voltage Power Delivery & Point-of-Load (PoL) Conversion**
-   - *Why it complies*: Delivering thousands of amperes at sub-1.0V to silicon packages creates unsustainable resistive ($I^2R$) heat losses across traditional 12V and 48V copper busbars. Power delivery network (PDN) design inside the rack is as critical as power delivery to the building.
-   - *Core sub-topics*:
-     - 400V / 800V DC high-voltage server rack busbar architectures.
-     - Vertical Power Delivery (VPD) and on-package Integrated Voltage Regulators (IVR) delivering power directly underneath the die.
-     - Gallium Nitride (GaN) and Silicon Carbide (SiC) point-of-load converter stages operating at multi-megahertz switching frequencies.
+   - *Direct Sources*: `Power Electronics News`, `Data Center Dynamics`, `OCP Blog`, `ServeTheHome`, `EE Times`, `arXiv` (`eess.SY`, `physics.app-ph`, `cs.AR`).
+   - *Core sub-topics*: 400V / 800V DC high-voltage server rack busbar architectures; Vertical Power Delivery (VPD) & on-package Integrated Voltage Regulators (IVR); GaN & SiC point-of-load converter stages at multi-MHz switching frequencies.
 5. **Ultra-Wide Bandgap Materials & Synthetic Diamond Thermal Spreaders**
-   - *Why it complies*: Silicon's natural thermal conductivity (~150 W/m·K) forms a thermal bottleneck at the junction layer. Advanced materials integrated into the wafer stack allow higher sustained clock frequencies and current densities without thermal throttling.
-   - *Core sub-topics*:
-     - Chemical Vapor Deposition (CVD) diamond substrates and heat spreaders (~2,000 W/m·K) bonded directly to silicon.
-     - Gallium Oxide ($\text{Ga}_2\text{O}_3$) and aluminum nitride (AlN) for extreme high-voltage, high-heat power electronics.
+   - *Direct Sources*: `Power Electronics News`, `Semiconductor Engineering`, `EE Times`, `DIGITIMES Asia`, `arXiv` (`cond-mat.mtrl-sci`, `physics.app-ph`).
+   - *Core sub-topics*: CVD diamond substrates & heat spreaders (~2,000 W/m·K) bonded directly to silicon; Gallium Oxide ($\text{Ga}_2\text{O}_3$) & Aluminum Nitride (AlN) high-voltage, high-heat power electronics.
 6. **All-Optical Circuit Switching (OCS) & Co-Packaged Switch Fabrics**
-   - *Why it complies*: Clusters scaling to 100,000+ accelerators spend 15–20% of their power purely on optical transceivers, electrical SerDes, and retimers. Eliminating electrical-optical-electrical (E-O-E) conversions in switching fabrics is mandatory to sustain network scaling.
-   - *Core sub-topics*:
-     - Direct-drive optical circuit switches (OCS) using micro-electro-mechanical system (MEMS) 2D/3D mirror arrays.
-     - 51.2T and 102.4T switch ASICs co-packaged with optical engines (CPO).
+   - *Direct Sources*: `Semiconductor Engineering`, `ServeTheHome`, `HPCwire`, `EE Times`, `OCP Blog`, `Chips and Cheese`, `TrendForce`, `arXiv` (`physics.optics`, `physics.app-ph`, `cs.NI`, `cs.AR`, `cs.DC`).
+   - *Core sub-topics*: Direct-drive optical circuit switches (OCS) using MEMS 2D/3D mirror arrays; 51.2T and 102.4T switch ASICs co-packaged with optical engines (CPO).

@@ -156,13 +156,11 @@ HEALTHCHECK_FILE = os.getenv("HEALTHCHECK_FILE", "/app/data/heartbeat.txt").stri
 LLM_TEXT_FIELD_MAX_CHARS = get_int("LLM_TEXT_FIELD_MAX_CHARS", 500)
 
 DEFAULT_ARXIV_CATEGORIES = [
-    "cs.AR", "cs.DC", "cs.ET", "cs.NI", "cs.RO", "cs.AI", "cs.LG",
-    "eess.SY", "eess.SP", "eess.IV",
+    "cs.AR", "cs.DC", "cs.ET", "cs.NI", "cs.RO", "cs.LG",
+    "eess.SP", "eess.SY", "eess.IV",
     "physics.optics", "physics.app-ph", "cond-mat.mtrl-sci", "physics.flu-dyn",
 ]
 ARXIV_CATEGORIES = get_csv("ARXIV_CATEGORIES", DEFAULT_ARXIV_CATEGORIES)
-ENABLE_ARXIV_FRONTIER_SEARCH = get_bool("ENABLE_ARXIV_FRONTIER_SEARCH", True)
-ARXIV_FRONTIER_MAX_RESULTS_PER_TOPIC = get_int("ARXIV_FRONTIER_MAX_RESULTS_PER_TOPIC", 8)
 
 SEND_RAW_FETCH_REPORT = get_bool("SEND_RAW_FETCH_REPORT", False)
 SEND_RAW_FETCH_JSON = get_bool("SEND_RAW_FETCH_JSON", False)
@@ -177,42 +175,15 @@ ENABLE_SPECIALIST_RSS = get_bool("ENABLE_SPECIALIST_RSS", True)
 SPECIALIST_RSS_MAX_ITEMS_PER_FEED = get_int("SPECIALIST_RSS_MAX_ITEMS_PER_FEED", 12)
 DEFAULT_SPECIALIST_RSS_FEEDS = [
     ("Semiconductor Engineering", "https://semiengineering.com/feed/"),
-    ("The Register / HPC", "https://api.theregister.com/api/v1/article?limit=25&orderBy=published&query=tag%3Ahpc&remapper=rss&site_id=2"),
+    ("The Register HPC", "https://www.theregister.com/on_prem/headlines.atom"),
     ("ServeTheHome", "https://www.servethehome.com/feed/"),
-    ("OCP Blog", "https://www.opencompute.org/blog/rss;;https://news.google.com/rss/search?q=%22Open+Compute+Project%22&hl=en-US&gl=US&ceid=US:en"),
-    ("TrendForce News", "https://www.trendforce.com/news/feed"),
-    ("Data Center Dynamics", "https://www.datacenterdynamics.com/en/rss/"),
+    ("OCP Blog", "https://www.opencompute.org/blog/rss"),
+    ("Data Center Dynamics", "https://www.datacenterdynamics.com/en/rss/;;https://www.datacenterdynamics.com/rss/"),
+    ("Power Electronics News", "https://www.powerelectronicsnews.com/feed/"),
+    ("EE Times", "https://www.eetimes.com/feed/"),
+    ("Blocks and Files", "https://www.blocksandfiles.com/feed/"),
     ("Chips and Cheese", "https://chipsandcheese.com/feed/"),
-]
-
-# Step 1b: Targeted Frontier Hardware Topic RSS feeds (6 core physical infrastructure pillars)
-ENABLE_FRONTIER_TOPIC_RSS = get_bool("ENABLE_FRONTIER_TOPIC_RSS", True)
-FRONTIER_TOPIC_RSS_MAX_ITEMS_PER_FEED = get_int("FRONTIER_TOPIC_RSS_MAX_ITEMS_PER_FEED", 8)
-DEFAULT_FRONTIER_TOPIC_RSS_FEEDS = [
-    (
-        "Frontier / Thermal & Immersion Cooling",
-        "https://news.google.com/rss/search?q=(%22direct-to-chip%22+OR+%22microchannel+cold+plate%22+OR+%22immersion+cooling%22+OR+%22coolant+distribution+unit%22+OR+%22microfluidic+cooling%22+OR+%22dielectric+fluid%22)+AND+(AI+OR+datacenter+OR+GPU+OR+semiconductor)&hl=en-US&gl=US&ceid=US:en",
-    ),
-    (
-        "Frontier / Glass Substrates & FOPLP",
-        "https://news.google.com/rss/search?q=(%22glass+substrate%22+OR+%22through-glass+via%22+OR+%22TGV%22+OR+%22FOPLP%22+OR+%22panel-level+packaging%22+OR+%22glass+interposer%22+OR+%22ABF+substrate%22)&hl=en-US&gl=US&ceid=US:en",
-    ),
-    (
-        "Frontier / HBM4, CXL 3 & Near-Memory Compute",
-        "https://news.google.com/rss/search?q=(%22HBM4%22+OR+%22HBM4e%22+OR+%22CXL+3.0%22+OR+%22CXL+3.1%22+OR+%22memory+pooling%22+OR+%22processing-in-memory%22+OR+%22near-memory+compute%22)&hl=en-US&gl=US&ceid=US:en",
-    ),
-    (
-        "Frontier / Rack HV Power, VPD & GaN/SiC PoL",
-        "https://news.google.com/rss/search?q=(%22400V+DC%22+OR+%22800V+DC%22+OR+%22vertical+power+delivery%22+OR+%22integrated+voltage+regulator%22+OR+%22point-of-load%22)+AND+(datacenter+OR+rack+OR+GaN+OR+SiC+OR+AI)&hl=en-US&gl=US&ceid=US:en",
-    ),
-    (
-        "Frontier / UWBG & CVD Diamond Thermal",
-        "https://news.google.com/rss/search?q=(%22CVD+diamond%22+OR+%22diamond+heat+spreader%22+OR+%22diamond+substrate%22+OR+%22gallium+oxide%22+OR+%22Ga2O3%22+OR+%22ultra-wide+bandgap%22)+AND+(semiconductor+OR+wafer+OR+thermal+OR+power)&hl=en-US&gl=US&ceid=US:en",
-    ),
-    (
-        "Frontier / All-Optical Switching & CPO",
-        "https://news.google.com/rss/search?q=(%22optical+circuit+switch%22+OR+%22co-packaged+optics%22+OR+%2251.2T%22+OR+%22102.4T%22+OR+%22MEMS+mirror%22+OR+%22optical+engine%22)+AND+(switch+OR+ASIC+OR+AI+OR+cluster)&hl=en-US&gl=US&ceid=US:en",
-    ),
+    ("HPCwire", "https://www.hpcwire.com/feed/"),
 ]
 
 # Step 2: Asia/supply-chain layer
@@ -220,7 +191,7 @@ ENABLE_SUPPLY_CHAIN_RSS = get_bool("ENABLE_SUPPLY_CHAIN_RSS", True)
 SUPPLY_CHAIN_RSS_MAX_ITEMS_PER_FEED = get_int("SUPPLY_CHAIN_RSS_MAX_ITEMS_PER_FEED", 12)
 DEFAULT_SUPPLY_CHAIN_RSS_FEEDS = [
     ("DIGITIMES Asia", "https://www.digitimes.com/rss/daily.xml"),
-    ("TrendForce / Semiconductors", "https://www.trendforce.com/feed/Semiconductors.html"),
+    ("TrendForce Semiconductors", "https://www.trendforce.com/feed/Semiconductors.html"),
 ]
 
 ENABLE_HTML_SCRAPER = get_bool("ENABLE_HTML_SCRAPER", True)
@@ -230,54 +201,8 @@ DEFAULT_HTML_SCRAPER_TARGETS = [
     ("TrendForce News", "https://www.trendforce.com/news/;;/\\d{4}/\\d{2}/\\d{2}/"),
 ]
 
-# Step 3: SEC EDGAR polling — market-wide full-text search (EFTS)
-ENABLE_SEC_EDGAR = get_bool("ENABLE_SEC_EDGAR", True)
-SEC_USER_AGENT = os.getenv("SEC_USER_AGENT", "AI-Hardware-Trend-Bot/2.3 contact@example.com").strip()
-SEC_FORMS = get_csv("SEC_FORMS", ["8-K", "10-Q", "10-K", "S-1", "F-1", "20-F", "6-K"])
-SEC_LOOKBACK_DAYS = get_int("SEC_LOOKBACK_DAYS", 3)
-SEC_MAX_ITEMS_PER_FETCH = get_int("SEC_MAX_ITEMS_PER_FETCH", 40)
-ENABLE_SEC_FRONTIER_EXPANSION = get_bool("ENABLE_SEC_FRONTIER_EXPANSION", True)
-DEFAULT_SEC_EFTS_QUERY = (
-    '"HBM" OR "HBM4" OR "HBM4e" OR "high bandwidth memory" OR "CoWoS" '
-    'OR "glass substrate" OR "through-glass via" OR "FOPLP" OR "panel-level packaging" '
-    'OR "Compute Express Link" OR "processing-in-memory" OR "near-memory" '
-    'OR "silicon photonics" OR "co-packaged optics" OR "optical circuit switch" '
-    'OR "liquid cooling" OR "immersion cooling" OR "cold plate" OR "coolant distribution unit" '
-    'OR "microfluidic cooling" OR "vertical power delivery" OR "integrated voltage regulator" '
-    'OR "CVD diamond" OR "gallium oxide" OR "AI accelerator" OR "GPU cluster"'
-)
-SEC_EFTS_QUERY = os.getenv("SEC_EFTS_QUERY", DEFAULT_SEC_EFTS_QUERY).strip()
-
-# Topic-scoped SEC EFTS queries executed alongside SEC_EFTS_QUERY when ENABLE_SEC_FRONTIER_EXPANSION=true
-DEFAULT_FRONTIER_SEC_EFTS_QUERIES = [
-    (
-        "Advanced Thermal Management & Liquid/Immersion Cooling Systems",
-        '"direct-to-chip" OR "cold plate" OR "microchannel" OR "immersion cooling" OR "dielectric fluid" OR "coolant distribution unit" OR "microfluidic cooling"',
-    ),
-    (
-        "Glass Substrates & Panel-Level Packaging (PLP)",
-        '"glass substrate" OR "through-glass via" OR "panel-level packaging" OR "FOPLP" OR "glass interposer" OR "ABF substrate"',
-    ),
-    (
-        "Next-Generation Memory Hierarchies & Near-Memory Compute",
-        '"HBM4" OR "HBM4e" OR "Compute Express Link" OR "CXL 3.0" OR "CXL 3.1" OR "memory pooling" OR "processing-in-memory" OR "near-memory compute"',
-    ),
-    (
-        "Rack-Scale High-Voltage Power Delivery & Point-of-Load (PoL) Conversion",
-        '"400V DC" OR "800V DC" OR "rack busbar" OR "vertical power delivery" OR "integrated voltage regulator" OR "point-of-load"',
-    ),
-    (
-        "Ultra-Wide Bandgap Materials & Synthetic Diamond Thermal Spreaders",
-        '"CVD diamond" OR "diamond substrate" OR "diamond heat spreader" OR "gallium oxide" OR "Ga2O3" OR "aluminum nitride" OR "ultra-wide bandgap"',
-    ),
-    (
-        "All-Optical Circuit Switching (OCS) & Co-Packaged Switch Fabrics",
-        '"optical circuit switch" OR "MEMS mirror" OR "co-packaged optics" OR "51.2T" OR "102.4T" OR "optical engine"',
-    ),
-]
-
 # =========================
-# 6 Priority Frontier Hardware Domains & Sub-Topic Taxonomy
+# 6 Priority Frontier Hardware Domains & Sub-Topic Taxonomy (In-Memory Tagging & LLM Guidance)
 # =========================
 FRONTIER_TOPICS = [
     {
@@ -290,11 +215,6 @@ FRONTIER_TOPICS = [
             "Compute accelerator TDPs have exceeded 1,000 W per socket and are moving toward 2,000 W+, "
             "rendering air cooling physically unviable. Heat dissipation at the cold plate and facility "
             "loop is now a primary governor of cluster density."
-        ),
-        "arxiv_query": (
-            '("microchannel" OR "cold plate" OR "immersion cooling" OR "dielectric fluid" '
-            'OR "coolant distribution" OR "microfluidic cooling" OR "two-phase cooling") '
-            'AND (cat:physics.flu-dyn OR cat:physics.app-ph OR cat:cs.AR OR cat:cs.DC OR cat:eess.SY)'
         ),
         "subtopics": [
             (
@@ -339,11 +259,6 @@ FRONTIER_TOPICS = [
             "trace density limits, and electrical parasitic losses. Glass core substrates represent "
             "the next physical substrate transition."
         ),
-        "arxiv_query": (
-            '("glass substrate" OR "through-glass via" OR "TGV" OR "panel-level packaging" '
-            'OR "FOPLP" OR "glass interposer" OR "ABF substrate") '
-            'AND (cat:cond-mat.mtrl-sci OR cat:physics.app-ph OR cat:cs.AR OR cat:cs.ET)'
-        ),
         "subtopics": [
             (
                 "Through-Glass Vias (TGV) with ultra-high aspect ratios & sub-10 um pitch",
@@ -378,11 +293,6 @@ FRONTIER_TOPICS = [
             "Frontier LLM inference is fundamentally memory-bandwidth bound (FLOP-to-byte imbalances). "
             "The transition to custom base dies and memory-pooling interconnects is shifting memory "
             "from a passive commodity to active compute silicon."
-        ),
-        "arxiv_query": (
-            '("HBM4" OR "HBM4e" OR "Compute Express Link" OR "CXL 3" OR "memory pooling" '
-            'OR "processing-in-memory" OR "near-memory compute" OR "near-memory computing") '
-            'AND (cat:cs.AR OR cat:cs.DC OR cat:cs.ET OR cat:eess.SY)'
         ),
         "subtopics": [
             (
@@ -419,11 +329,6 @@ FRONTIER_TOPICS = [
             "resistive (I^2R) heat losses across traditional 12V and 48V copper busbars. Power delivery "
             "network (PDN) design inside the rack is as critical as power delivery to the building."
         ),
-        "arxiv_query": (
-            '("vertical power delivery" OR "integrated voltage regulator" OR "point-of-load" '
-            'OR "400V" OR "800V" OR "backside power delivery" OR "GaN converter") '
-            'AND (cat:eess.SY OR cat:physics.app-ph OR cat:cs.AR OR cat:cs.ET)'
-        ),
         "subtopics": [
             (
                 "400V / 800V DC high-voltage server rack busbar architectures",
@@ -459,11 +364,6 @@ FRONTIER_TOPICS = [
             "junction layer. Advanced materials integrated into the wafer stack allow higher sustained "
             "clock frequencies and current densities without thermal throttling."
         ),
-        "arxiv_query": (
-            '("CVD diamond" OR "diamond heat spreader" OR "diamond substrate" OR "gallium oxide" '
-            'OR "Ga2O3" OR "aluminum nitride" OR "ultra-wide bandgap") '
-            'AND (cat:cond-mat.mtrl-sci OR cat:physics.app-ph)'
-        ),
         "subtopics": [
             (
                 "CVD diamond substrates & heat spreaders (~2,000 W/m*K) bonded directly to silicon",
@@ -492,11 +392,6 @@ FRONTIER_TOPICS = [
             "transceivers, electrical SerDes, and retimers. Eliminating electrical-optical-electrical "
             "(E-O-E) conversions in switching fabrics is mandatory to sustain network scaling."
         ),
-        "arxiv_query": (
-            '("optical circuit switch" OR "MEMS mirror" OR "co-packaged optics" OR "51.2T" '
-            'OR "102.4T" OR "optical switch fabric" OR "silicon photonic switch") '
-            'AND (cat:physics.optics OR cat:physics.app-ph OR cat:cs.NI OR cat:cs.AR OR cat:cs.DC)'
-        ),
         "subtopics": [
             (
                 "Direct-drive Optical Circuit Switches (OCS) using MEMS 2D/3D mirror arrays",
@@ -514,10 +409,6 @@ FRONTIER_TOPICS = [
             ),
         ],
     },
-]
-
-DEFAULT_ARXIV_FRONTIER_QUERIES = [
-    (topic["title"], topic["arxiv_query"]) for topic in FRONTIER_TOPICS
 ]
 
 REQUEST_HEADERS = {
@@ -1320,37 +1211,6 @@ def fetch_arxiv():
             )
         items.extend(bucketed)
 
-    if ENABLE_ARXIV_FRONTIER_SEARCH:
-        seen_arxiv_urls = {it.get("url") for it in items if it.get("url")}
-        frontier_added = 0
-        frontier_arxiv_specs = get_feed_specs("ARXIV_FRONTIER_QUERIES", DEFAULT_ARXIV_FRONTIER_QUERIES)
-        topic_by_title = {t["title"].lower(): t for t in FRONTIER_TOPICS}
-        for topic_label, t_query in frontier_arxiv_specs:
-            if not t_query:
-                continue
-            matched_meta = topic_by_title.get(topic_label.lower(), {})
-            cat_label = matched_meta.get("category", topic_label)
-            t_params = {
-                "search_query": t_query,
-                "start": 0,
-                "max_results": ARXIV_FRONTIER_MAX_RESULTS_PER_TOPIC,
-                "sortBy": "submittedDate",
-                "sortOrder": "descending",
-            }
-            t_url = "https://export.arxiv.org/api/query?" + urlencode(t_params)
-            t_entries = _fetch_arxiv_atom(t_url, max_retries=2, timeout=15)
-            for entry in t_entries[:ARXIV_FRONTIER_MAX_RESULTS_PER_TOPIC]:
-                parsed_item = _parse_arxiv_entry(entry, f"Frontier: {cat_label}")
-                if not parsed_item["url"] or parsed_item["url"] in seen_arxiv_urls:
-                    continue
-                seen_arxiv_urls.add(parsed_item["url"])
-                parsed_item["frontier_topic"] = topic_label
-                enrich_item_with_frontier_topics(parsed_item)
-                items.append(parsed_item)
-                frontier_added += 1
-            time.sleep(0.5)
-        log.info(f"arXiv frontier topic search: +{frontier_added} targeted preprints across {len(frontier_arxiv_specs)} frontier queries")
-
     return items
 
 
@@ -1858,17 +1718,6 @@ def fetch_specialist_rss():
     return fetch_feed_specs_2(specs, "specialist_media", SPECIALIST_RSS_MAX_ITEMS_PER_FEED)
 
 
-def fetch_frontier_topic_rss():
-    """Fetch targeted RSS feeds dedicated to the 6 priority frontier hardware domains."""
-    if not ENABLE_FRONTIER_TOPIC_RSS:
-        return []
-    specs = get_feed_specs("FRONTIER_TOPIC_RSS_FEEDS", DEFAULT_FRONTIER_TOPIC_RSS_FEEDS)
-    fetched = fetch_feed_specs(specs, "frontier_specialist_rss", FRONTIER_TOPIC_RSS_MAX_ITEMS_PER_FEED)
-    for item in fetched:
-        enrich_item_with_frontier_topics(item)
-    return fetched
-
-
 def fetch_supply_chain_rss():
     if not ENABLE_SUPPLY_CHAIN_RSS:
         return []
@@ -1990,130 +1839,6 @@ def fetch_universal_html_scrapers():
     return all_scraped_items
 
 
-def fetch_sec_edgar():
-    """Search all SEC EDGAR filings via EFTS full-text search across base and 6 Frontier Hardware Topic queries."""
-    items = []
-    if not ENABLE_SEC_EDGAR or not SEC_EFTS_QUERY:
-        return items
-
-    headers = {
-        "User-Agent": SEC_USER_AGENT,
-        "Accept": "application/json",
-    }
-    now_utc = utc_now()
-    start_dt = (now_utc - dt.timedelta(days=max(1, SEC_LOOKBACK_DAYS))).strftime("%Y-%m-%d")
-    end_dt = now_utc.strftime("%Y-%m-%d")
-    allowed_forms = {f.strip().upper() for f in SEC_FORMS if f.strip()}
-    url = "https://efts.sec.gov/LATEST/search-index"
-
-    query_plan = [("Base AI Hardware Query", SEC_EFTS_QUERY)]
-    if ENABLE_SEC_FRONTIER_EXPANSION:
-        for topic_label, topic_q in get_feed_specs("FRONTIER_SEC_EFTS_QUERIES", DEFAULT_FRONTIER_SEC_EFTS_QUERIES):
-            query_plan.append((topic_label, topic_q))
-
-    seen_accessions = set()
-
-    for query_label, query_str in query_plan:
-        if len(items) >= SEC_MAX_ITEMS_PER_FETCH:
-            break
-
-        params = {
-            "q": query_str,
-            "startdt": start_dt,
-            "enddt": end_dt,
-        }
-        if allowed_forms:
-            params["forms"] = ",".join(sorted(allowed_forms))
-
-        try:
-            response = requests.get(url, params=params, headers=headers, timeout=35)
-            if response.status_code != 200:
-                log.warning(f"SEC EFTS issue ({query_label}): {response.status_code} {response.text[:160]}")
-                continue
-
-            data = response.json() or {}
-            if "errorType" in data:
-                log.warning(f"SEC EFTS query error ({query_label}): {data.get('errorMessage', data.get('errorType'))}")
-                continue
-
-            hits = (data.get("hits") or {}).get("hits") or []
-
-            for hit in hits:
-                if len(items) >= SEC_MAX_ITEMS_PER_FETCH:
-                    break
-
-                src = hit.get("_source") or {}
-                adsh = clean_text(src.get("adsh", ""))
-                if not adsh or adsh in seen_accessions:
-                    continue
-
-                form = clean_text(src.get("form", "")).upper()
-                root_forms = [clean_text(rf).upper() for rf in (src.get("root_forms") or [])]
-                if allowed_forms and form not in allowed_forms and not any(rf in allowed_forms for rf in root_forms):
-                    continue
-
-                ciks = src.get("ciks") or []
-                if not ciks:
-                    continue
-                cik_int = str(int(re.sub(r"\D", "", str(ciks[0])) or 0))
-                adsh_nodash = adsh.replace("-", "")
-                hit_id = hit.get("_id", "")
-                filename = hit_id.split(":", 1)[1] if ":" in hit_id else ""
-
-                if filename:
-                    filing_url = normalize_url(f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{adsh_nodash}/{filename}")
-                else:
-                    filing_url = normalize_url(f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{adsh_nodash}/{adsh}-index.htm")
-
-                display_names = src.get("display_names") or []
-                company_label = clean_text(display_names[0]) if display_names else f"CIK {ciks[0]}"
-                file_date = clean_text(src.get("file_date", ""))
-                period_ending = clean_text(src.get("period_ending", ""))
-                file_desc = clean_text(src.get("file_description", "") or src.get("file_type", ""))
-                sics = [clean_text(s) for s in (src.get("sics") or []) if s]
-                form_items = [clean_text(it) for it in (src.get("items") or []) if it]
-
-                seen_accessions.add(adsh)
-
-                title_desc = f": {file_desc}" if file_desc and file_desc.upper() != form else ""
-                title = f"{company_label} - Form {form}{title_desc} ({file_date})"
-
-                summary_parts = [
-                    f"Filer: {company_label}",
-                    f"Form: {form}",
-                    f"Filed: {file_date}",
-                    f"Matched Signal: {query_label}",
-                ]
-                if period_ending:
-                    summary_parts.append(f"Period: {period_ending}")
-                if sics:
-                    summary_parts.append(f"SIC: {', '.join(sics)}")
-                if form_items:
-                    summary_parts.append(f"8-K Items: {', '.join(form_items)}")
-                if file_desc:
-                    summary_parts.append(f"Document: {file_desc}")
-
-                filing_item = {
-                    "title": title,
-                    "url": filing_url,
-                    "source": "SEC EDGAR / Full-Text Search",
-                    "source_type": "sec_filing",
-                    "published_at": f"{file_date}T00:00:00+00:00" if file_date else utc_now().isoformat(),
-                    "raw_summary": " | ".join(summary_parts)[:2200],
-                }
-                if query_label != "Base AI Hardware Query":
-                    filing_item["frontier_topic"] = query_label
-                enrich_item_with_frontier_topics(filing_item)
-                items.append(filing_item)
-
-        except Exception as exc:
-            log.error(f"SEC EDGAR EFTS exception ({query_label}): {repr(exc)}")
-        time.sleep(0.15)
-
-    log.info(f"sec_edgar: {len(items)} AI-hardware filings matched via EFTS ({start_dt} to {end_dt})")
-    return items
-
-
 # =========================
 # Gemini classification
 # =========================
@@ -2222,16 +1947,14 @@ Additional Relevant Physical Hardware Layers:
 - Semiconductor manufacturing: lithography (EUV/High-NA), deposition, etch, metrology, advanced nodes, wafer capacity, yield, EDA or physical design that directly affects chips.
 - Robotics hardware: sensors, actuators, robot hands, embodied AI hardware, embedded compute, edge AI hardware, physical autonomy systems.
 - Quantum/neuromorphic/photonic compute only if there is a clear AI compute or AI infrastructure angle.
-- SEC-filing items are relevant only if the title/summary clearly identifies a physical hardware, semiconductor, robotics, datacenter, power, cooling, packaging, substrate, UWBG/diamond material, memory, or optical interconnect signal.
-
 Positive source-quality signals:
 - Concrete substance on any of the 6 Priority Frontier Hardware Pillars above (score 8-10 when accompanied by R&D breakthroughs, qualification, tape-outs, supply-chain adoption, or capacity expansion).
-- SEC filing metadata, supply-chain media, or specialist semiconductor/HPC/datacenter publication.
+- Supply-chain media or specialist semiconductor, power electronics, photonics, or HPC/datacenter publication.
 - Production ramp, shipment, qualification, capacity expansion, standards adoption, or named technical bottleneck.
 
 Reject / mark irrelevant:
 - Software-only LLMs, agents, prompts, applications, SaaS, consumer AI products, app launches.
-- Generic company earnings, stock moves, crypto, regulation, marketing partnerships, layoffs, funding rounds, or SEC filings without specific hardware technology.
+- Generic company earnings, stock moves, crypto, regulation, marketing partnerships, layoffs, or funding rounds without specific hardware technology.
 - General academic AI papers with no hardware, robotics embodiment, infrastructure, materials, thermal/power, or physical compute contribution.
 - Hype phrases like "AI-powered" unless the item explains the underlying hardware/infrastructure.
 
@@ -2435,10 +2158,8 @@ def fetch_all_sources() -> list:
         ("hackernews", fetch_hackernews),
         ("techmeme", fetch_techmeme),
         ("specialist_rss", fetch_specialist_rss),
-        ("frontier_topic_rss", fetch_frontier_topic_rss),
         ("supply_chain_rss", fetch_supply_chain_rss),
         ("html_scraper", fetch_universal_html_scrapers),
-        ("sec_edgar", fetch_sec_edgar),
     ]
     all_items = []
     for name, fetcher in fetchers:
@@ -2680,12 +2401,10 @@ def print_config():
     log.info(f"ENABLE_ARXIV: {ENABLE_ARXIV} categories: {ARXIV_CATEGORIES} per category: {ARXIV_RESULTS_PER_CATEGORY} workers: {ARXIV_FETCH_WORKERS}")
     log.info(f"ENABLE_HACKERNEWS: {ENABLE_HACKERNEWS} HN_NEW_STORIES_PER_RUN: {HN_NEW_STORIES_PER_RUN} workers: {HN_FETCH_WORKERS} high_water_mark: {get_hn_high_water_mark()}")
     log.info(f"ENABLE_TECHMEME: {ENABLE_TECHMEME} TECHMEME_MAX_ITEMS: {TECHMEME_MAX_ITEMS}")
-    log.info(f"ENABLE_ARXIV_FRONTIER_SEARCH: {ENABLE_ARXIV_FRONTIER_SEARCH} queries: {len(get_feed_specs('ARXIV_FRONTIER_QUERIES', DEFAULT_ARXIV_FRONTIER_QUERIES))} max_per_topic: {ARXIV_FRONTIER_MAX_RESULTS_PER_TOPIC}")
     log.info(f"ENABLE_SPECIALIST_RSS: {ENABLE_SPECIALIST_RSS} feeds: {len(get_feed_specs('SPECIALIST_RSS_FEEDS', DEFAULT_SPECIALIST_RSS_FEEDS))} per feed: {SPECIALIST_RSS_MAX_ITEMS_PER_FEED}")
-    log.info(f"ENABLE_FRONTIER_TOPIC_RSS: {ENABLE_FRONTIER_TOPIC_RSS} feeds: {len(get_feed_specs('FRONTIER_TOPIC_RSS_FEEDS', DEFAULT_FRONTIER_TOPIC_RSS_FEEDS))} per feed: {FRONTIER_TOPIC_RSS_MAX_ITEMS_PER_FEED}")
     log.info(f"ENABLE_SUPPLY_CHAIN_RSS: {ENABLE_SUPPLY_CHAIN_RSS} feeds: {len(get_feed_specs('SUPPLY_CHAIN_RSS_FEEDS', DEFAULT_SUPPLY_CHAIN_RSS_FEEDS))} per feed: {SUPPLY_CHAIN_RSS_MAX_ITEMS_PER_FEED}")
     log.info(f"ENABLE_HTML_SCRAPER: {ENABLE_HTML_SCRAPER} targets: {len(get_feed_specs('HTML_SCRAPER_TARGETS', DEFAULT_HTML_SCRAPER_TARGETS))} per site: {HTML_SCRAPER_MAX_ITEMS_PER_SITE}")
-    log.info(f"ENABLE_SEC_EDGAR: {ENABLE_SEC_EDGAR} forms: {SEC_FORMS} lookback_days: {SEC_LOOKBACK_DAYS} max_items: {SEC_MAX_ITEMS_PER_FETCH} frontier_expansion: {ENABLE_SEC_FRONTIER_EXPANSION} frontier_queries: {len(get_feed_specs('FRONTIER_SEC_EFTS_QUERIES', DEFAULT_FRONTIER_SEC_EFTS_QUERIES))}")
+    log.info(f"Frontier hardware pillars tracked (in-memory regex + LLM classifier): {len(FRONTIER_TOPICS)}")
     log.info(f"Telegram token found: {bool(TELEGRAM_BOT_TOKEN)}")
     log.info(f"Telegram chat found: {bool(TELEGRAM_CHAT_ID)}")
     log.info(f"OpenRouter key found: {bool(OPENROUTER_API_KEY)}")
