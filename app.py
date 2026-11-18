@@ -158,7 +158,7 @@ LLM_TEXT_FIELD_MAX_CHARS = get_int("LLM_TEXT_FIELD_MAX_CHARS", 500)
 DEFAULT_ARXIV_CATEGORIES = [
     "cs.AI", "cs.LG", "cs.CL", "cs.CV", "cs.RO", "cs.DC", "cs.AR", "cs.ET", "cs.NI",
     "eess.SY", "eess.SP", "eess.IV",
-    "physics.optics", "physics.app-ph", "cond-mat.mtrl-sci", "physics.flu-dyn",
+    "quant-ph", "physics.optics", "physics.app-ph", "cond-mat.mtrl-sci", "physics.flu-dyn",
 ]
 ARXIV_CATEGORIES = get_csv("ARXIV_CATEGORIES", DEFAULT_ARXIV_CATEGORIES)
 
@@ -178,12 +178,11 @@ DEFAULT_SPECIALIST_RSS_FEEDS = [
     ("The Register HPC", "https://www.theregister.com/on_prem/headlines.atom"),
     ("ServeTheHome", "https://www.servethehome.com/feed/"),
     ("OCP Blog", "https://www.opencompute.org/blog/rss;;https://news.google.com/rss/search?q=%22Open+Compute+Project%22&hl=en-US&gl=US&ceid=US:en"),
-    ("Data Center Dynamics", "https://www.datacenterdynamics.com/en/rss/;;https://www.datacenterdynamics.com/rss/"),
     ("Power Electronics News", "https://www.powerelectronicsnews.com/feed/"),
     ("EE Times", "https://www.eetimes.com/feed/"),
     ("Blocks and Files", "https://www.blocksandfiles.com/feed/"),
     ("Chips and Cheese", "https://chipsandcheese.com/feed/"),
-    ("HPCwire", "https://www.hpcwire.com/feed/"),
+    ("Quantum Computing Report", "https://quantumcomputingreport.com/feed/"),
 ]
 
 # Step 2: Asia/supply-chain layer
@@ -198,7 +197,9 @@ ENABLE_HTML_SCRAPER = get_bool("ENABLE_HTML_SCRAPER", True)
 HTML_SCRAPER_MAX_ITEMS_PER_SITE = get_int("HTML_SCRAPER_MAX_ITEMS_PER_SITE", 12)
 
 DEFAULT_HTML_SCRAPER_TARGETS = [
-    ("TrendForce News", "https://www.trendforce.com/news/;;/\\d{4}/\\d{2}/\\d{2}/"),
+    ("TrendForce News", "https://www.trendforce.com/news/;;/\d{4}/\d{2}/\d{2}/"),
+    ("Data Center Dynamics", "https://www.datacenterdynamics.com/en/news/;;/en/(?:news|analysis|opinions|product-news)/[a-z0-9-]+"),
+    ("HPCwire", "https://www.hpcwire.com/;;/(?:20\d{2}/\d{2}/\d{2}|off-the-wire)/[a-z0-9-]+"),
 ]
 
 # Step 3: SEC EDGAR polling — market-wide full-text search (EFTS)
@@ -424,12 +425,26 @@ HARDWARE_DOMAIN_TAXONOMY = [
     },
     {
         "domain": "quantum / neuromorphic / photonic compute",
-        "bottleneck": "compute",
+        "bottleneck": "compute / interconnect / energy efficiency",
         "subtopics": [
             (
-                "Quantum, neuromorphic & optical/photonic compute engines for AI infrastructure",
+                "Neuromorphic Computing: spiking neural networks (SNNs) in silicon, event-based sensory processing & sub-milliwatt edge compute",
                 re.compile(
-                    r"\b(neuromorphic\s+(?:chip|compute|processor)|spiking\s+neural\s+network\s+chip|photonic\s+(?:compute|processor|tensor)|optical\s+neural\s+network|quantum\s+(?:accelerator|processor|interconnect))\b",
+                    r"\b(neuromorphic\s+(?:comput(?:ing|e|er)|chips?|processors?|silicon|sensors?|hardware)|spiking\s+neural\s+networks?|\bSNN\b\s+(?:chips?|processors?|accelerators?|silicon)|biological\s+neural\s+spikes?|event-based\s+(?:vision|sensory|cameras?|sensors?)|dynamic\s+vision\s+sensors?|memristive\s+(?:crossbars?|synapses?)|fractional\s+milliwatt|sub-milliwatt\s+(?:compute|silicon|sensory))\b",
+                    re.IGNORECASE,
+                ),
+            ),
+            (
+                "Quantum Computing: superposition & entanglement QPUs, fault-tolerant logical qubits, QEC, combinatorial optimization, quantum chemistry & cryptographic advantage",
+                re.compile(
+                    r"\b(quantum\s+(?:comput(?:ing|ers?|ation)|processors?|accelerators?|interconnects?|error\s+correction|supremacy|advantage|chemistry|annealing)|\bQPUs?\b|logical\s+qubits?|superconducting\s+qubits?|trapped-ion\s+qubits?|neutral-atom\s+qubits?|photonic\s+qubits?|silicon\s+spin\s+qubits?|topological\s+qubits?|surface\s+codes?|\bQEC\b|cryo-CMOS|superposition.*?entanglement|\bQAOA\b|\bVQE\b)\b",
+                    re.IGNORECASE,
+                ),
+            ),
+            (
+                "Optical & Photonic Computing: photonic matrix-vector multiplication (MVM), MZI meshes, optical tensor cores & photonic die-to-die interconnects bypassing copper bottlenecks",
+                re.compile(
+                    r"\b(optical\s+(?:comput(?:ing|e|ers?)|neural\s+networks?|matrix-vector|tensor\s+cores?|die-to-die|chip-to-chip)|photonic\s+(?:comput(?:ing|e|ers?)|processors?|tensor\s+cores?|accelerators?|matrix-vector|die-to-die|interconnects?|crossbars?)|Mach-Zehnder\s+interferometers?|\bMZI\b\s+mesh(?:es)?|photonic\s+\bMVM\b|optical\s+\bMVM\b)\b",
                     re.IGNORECASE,
                 ),
             ),
@@ -489,6 +504,22 @@ REQUEST_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
     "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, text/html, application/json;q=0.9, */*;q=0.8",
     "Accept-Language": "en-US,en;q=0.5",
+}
+
+HTML_BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+    "Sec-Ch-Ua": '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
 }
 
 
@@ -1153,10 +1184,7 @@ def _fetch_arxiv_atom(url, max_retries=3, timeout=15):
 def _parse_arxiv_entry(entry, category):
     """Field names here MUST match what fetch_and_enqueue()/insert_item()
     expect (url, source, source_type, published_at, raw_summary) — NOT the
-    raw feedparser/Atom names (link, published, summary). fetch_and_enqueue()
-    silently drops any item with an empty "url" (line ~1963), so a field-name
-    mismatch here doesn't error, it just makes arXiv items vanish before
-    dedup ever sees them."""
+    raw feedparser/Atom names (link, published, summary)."""
     return {
         "title": clean_text(entry.get("title", "")),
         "url": normalize_url(entry.get("link", "")),
@@ -1170,11 +1198,7 @@ def _parse_arxiv_entry(entry, category):
 
 def fetch_arxiv():
     """Fetch ARXIV_RESULTS_PER_CATEGORY items for each configured category
-    in a single combined API call. Bypasses fetch_standard_rss so category
-    tags are preserved for bucketing. One request total avoids the
-    concurrent-request pattern arXiv's API terms ask clients not to use,
-    and sidesteps the 429s the per-category ThreadPoolExecutor version
-    could trigger."""
+    in a single combined API call."""
     items = []
     if not ENABLE_ARXIV or not ARXIV_CATEGORIES:
         return items
@@ -1195,10 +1219,6 @@ def fetch_arxiv():
     if not raw_entries:
         return items
 
-    # Bucket by category, capped at ARXIV_RESULTS_PER_CATEGORY per bucket.
-    # An entry can belong to multiple ARXIV_CATEGORIES (arXiv cross-lists);
-    # it's counted toward every matching bucket it's still short on, not
-    # just the first, so overlapping categories don't starve each other.
     buckets = {cat: [] for cat in ARXIV_CATEGORIES}
     for entry in raw_entries:
         entry_categories = [t.get("term") for t in entry.get("tags", []) if t.get("term")]
@@ -1308,10 +1328,8 @@ def fetch_standard_rss(
     feed_url, source_label=None, source_type="rss", max_items=25
 ):
   """Fetch an RSS/Atom feed with browser headers, conditional GET,
-
   cooldown tracking, and a Wayback Machine fallback.
   """
-  # 1. Early exit: if on cooldown, do nothing and return immediately
   if feed_should_skip_live(feed_url):
     log.info(
         f"RSS feed on cooldown, skipping attempt: {source_label or feed_url}"
@@ -1325,7 +1343,6 @@ def fetch_standard_rss(
   live_status = None
   not_modified = False
 
-  # 2. Build request headers with cached ETag / Last-Modified
   request_headers = dict(REQUEST_HEADERS)
   cached_headers = FEED_CACHE_HEADERS.get(feed_url) or {}
   if cached_headers.get("etag"):
@@ -1333,7 +1350,6 @@ def fetch_standard_rss(
   if cached_headers.get("last_modified"):
     request_headers["If-Modified-Since"] = cached_headers["last_modified"]
 
-  # 3. Live HTTP request
   try:
     response = requests.get(feed_url, headers=request_headers, timeout=35)
     live_status = response.status_code
@@ -1358,12 +1374,10 @@ def fetch_standard_rss(
   except Exception as exc:
     log.info(f"RSS requests issue for {source_label or feed_url}: {repr(exc)}")
 
-  # 4. Handle 304 Not Modified (success, no new content)
   if not_modified:
     feed_record_result(feed_url, success=True)
     return items
 
-  # 5. Parse live response
   if raw_content:
     try:
       feed = feedparser.parse(raw_content)
@@ -1371,11 +1385,9 @@ def fetch_standard_rss(
       log.info(f"RSS feedparser parsing issue for {feed_url}: {repr(exc)}")
       feed = None
 
-  # 6. Record live attempt result
   live_entries_ok = bool(feed and getattr(feed, "entries", None))
   feed_record_result(feed_url, success=live_entries_ok)
 
-  # 7. Fallback to Wayback Machine only if live fetch produced no entries
   if not live_entries_ok:
     reason = (
         "blocked/challenge page or malformed feed"
@@ -1392,8 +1404,10 @@ def fetch_standard_rss(
       if wb_resp.status_code == 200:
         snapshots = wb_resp.json().get("archived_snapshots", {})
         if "closest" in snapshots and snapshots["closest"].get("available"):
-          snapshot_url = snapshots["closest"]["url"].replace(
-              "http://", "https://"
+          snapshot_url = re.sub(
+              r"/web/(\d+)/",
+              r"/web/\1id_/",
+              snapshots["closest"]["url"].replace("http://", "https://"),
           )
           log.info(
               f"Wayback snapshot found for {source_label or feed_url}."
@@ -1414,7 +1428,6 @@ def fetch_standard_rss(
   if not feed or not getattr(feed, "entries", None):
     return items
 
-  # 8. Extract items
   source_name = source_label or (
       clean_text(feed.feed.get("title", feed_url))
       if getattr(feed, "feed", None)
@@ -1445,10 +1458,8 @@ def fetch_standard_rss_2(
     feed_url, source_label=None, source_type="custom_rss", max_items=None
 ):
   """Enriched RSS/Atom fetcher: extracts <content:encoded>, tags/categories,
-
   author, and handles stubs.
   """
-  # 1. Early exit: if on cooldown, do nothing and return immediately
   if feed_should_skip_live(feed_url):
     log.info(
         f"RSS feed on cooldown, skipping attempt: {source_label or feed_url}"
@@ -1462,7 +1473,6 @@ def fetch_standard_rss_2(
   live_status = None
   not_modified = False
 
-  # 2. Build request headers with cached ETag / Last-Modified
   request_headers = dict(REQUEST_HEADERS)
   cached_headers = FEED_CACHE_HEADERS.get(feed_url) or {}
   if cached_headers.get("etag"):
@@ -1470,7 +1480,6 @@ def fetch_standard_rss_2(
   if cached_headers.get("last_modified"):
     request_headers["If-Modified-Since"] = cached_headers["last_modified"]
 
-  # 3. Live HTTP request
   try:
     response = requests.get(feed_url, headers=request_headers, timeout=35)
     live_status = response.status_code
@@ -1495,12 +1504,10 @@ def fetch_standard_rss_2(
   except Exception as exc:
     log.info(f"RSS requests issue for {source_label or feed_url}: {repr(exc)}")
 
-  # 4. Handle 304 Not Modified
   if not_modified:
     feed_record_result(feed_url, success=True)
     return items
 
-  # 5. Parse live response
   if raw_content:
     try:
       feed = feedparser.parse(raw_content)
@@ -1508,11 +1515,9 @@ def fetch_standard_rss_2(
       log.info(f"RSS feedparser parsing issue for {feed_url}: {repr(exc)}")
       feed = None
 
-  # 6. Record live attempt result
   live_entries_ok = bool(feed and getattr(feed, "entries", None))
   feed_record_result(feed_url, success=live_entries_ok)
 
-  # 7. Fallback to Wayback Machine only if live fetch produced no entries
   if not live_entries_ok:
     reason = (
         "blocked/challenge page or malformed feed"
@@ -1529,8 +1534,10 @@ def fetch_standard_rss_2(
       if wb_resp.status_code == 200:
         snapshots = wb_resp.json().get("archived_snapshots", {})
         if "closest" in snapshots and snapshots["closest"].get("available"):
-          snapshot_url = snapshots["closest"]["url"].replace(
-              "http://", "https://"
+          snapshot_url = re.sub(
+              r"/web/(\d+)/",
+              r"/web/\1id_/",
+              snapshots["closest"]["url"].replace("http://", "https://"),
           )
           log.info(
               f"Wayback snapshot found for {source_label or feed_url}."
@@ -1551,7 +1558,6 @@ def fetch_standard_rss_2(
   if not feed or not getattr(feed, "entries", None):
     return items
 
-  # 8. Extract and enrich items
   source_name = source_label or (
       clean_text(feed.feed.get("title", feed_url))
       if getattr(feed, "feed", None)
@@ -1565,7 +1571,6 @@ def fetch_standard_rss_2(
     if not title or not link:
       continue
 
-    # Extract body from content:encoded or description
     body = ""
     if "content" in entry and entry.content and isinstance(entry.content, list):
       body = clean_text(
@@ -1578,7 +1583,6 @@ def fetch_standard_rss_2(
           )
       )
 
-    # Extract tags
     tags = []
     if "tags" in entry and entry.tags:
       for t in entry.tags:
@@ -1586,10 +1590,8 @@ def fetch_standard_rss_2(
         if term and term not in tags:
           tags.append(term)
 
-    # Extract author
     author = clean_text(entry.get("author", entry.get("dc_creator", "")))
 
-    # Fallback OpenGraph scrape if body is very short
     if len(body) < 120 and link:
       meta_snippet = fetch_webpage_summary_snippet(session, link, timeout=6)
       if meta_snippet and len(meta_snippet) > len(body):
@@ -1650,6 +1652,13 @@ def fetch_feed_specs(specs, source_type, max_items_per_feed):
         log.error(
             f"{source_type} issue for {label} / {candidate_url}: {repr(exc)}"
         )
+    if total_for_label == 0 and candidate_urls:
+      parsed_root = urlsplit(candidate_urls[0])
+      if parsed_root.scheme and parsed_root.netloc and "news.google.com" not in parsed_root.netloc:
+        root_url = f"{parsed_root.scheme}://{parsed_root.netloc}/"
+        log.info(f"{source_type}: RSS yielded 0 items for {label}; falling back to HTML scraper on {root_url}")
+        scraped_fallback = scrape_single_html_target(label, root_url, max_items_per_feed)
+        items.extend(scraped_fallback)
   return items
 
 
@@ -1676,6 +1685,13 @@ def fetch_feed_specs_2(specs, source_type, max_items_per_feed):
         log.error(
             f"{source_type} issue for {label} / {candidate_url}: {repr(exc)}"
         )
+    if total_for_label == 0 and candidate_urls:
+      parsed_root = urlsplit(candidate_urls[0])
+      if parsed_root.scheme and parsed_root.netloc and "news.google.com" not in parsed_root.netloc:
+        root_url = f"{parsed_root.scheme}://{parsed_root.netloc}/"
+        log.info(f"{source_type}: RSS yielded 0 items for {label}; falling back to HTML scraper on {root_url}")
+        scraped_fallback = scrape_single_html_target(label, root_url, max_items_per_feed)
+        items.extend(scraped_fallback)
   return items
 
 def fetch_webpage_summary_snippet(session, url, timeout=6):
@@ -1685,7 +1701,6 @@ def fetch_webpage_summary_snippet(session, url, timeout=6):
         if resp.status_code != 200:
             return ""
         html_text = resp.text
-        # Fast regex extraction for og:description or description meta tags
         og_match = re.search(
             r'<meta\s+[^>]*property=[\'"]og:description[\'"][^>]*content=[\'"]([^\'"]+)[\'"]',
             html_text,
@@ -1727,6 +1742,314 @@ def fetch_supply_chain_rss():
     specs = get_feed_specs("SUPPLY_CHAIN_RSS_FEEDS", DEFAULT_SUPPLY_CHAIN_RSS_FEEDS)
     return fetch_feed_specs(specs, "supply_chain_media", SUPPLY_CHAIN_RSS_MAX_ITEMS_PER_FEED)
 
+def _unwrap_wayback_url(url_str):
+    """Strip Wayback Machine /web/<timestamp>/ prefix if present so canonical domain links are preserved."""
+    if not url_str:
+        return ""
+    return re.sub(r"^https?://web\.archive\.org/web/\d+(?:id_|[a-z_]+)?/", "", url_str.strip())
+
+
+def _parse_html_articles(html_text, base_url, label, url_pattern, ignore_patterns, max_items):
+    """Extract article items from raw HTML via JSON-LD metadata and DOM anchor scanning."""
+    site_items = []
+    seen_urls = set()
+    base_netloc = urlsplit(base_url).netloc.lower().lstrip("www.")
+    soup = BeautifulSoup(html_text, "html.parser")
+
+    for script_tag in soup.find_all("script", type=re.compile(r"ld\+json", re.I)):
+        raw_json = script_tag.string or script_tag.get_text() or ""
+        if not raw_json.strip():
+            continue
+        try:
+            ld_data = json.loads(raw_json)
+        except Exception:
+            continue
+        ld_nodes = ld_data if isinstance(ld_data, list) else [ld_data]
+        expanded = []
+        for node in ld_nodes:
+            if isinstance(node, dict):
+                expanded.append(node)
+                if isinstance(node.get("@graph"), list):
+                    expanded.extend(n for n in node["@graph"] if isinstance(n, dict))
+                if isinstance(node.get("itemListElement"), list):
+                    for el in node["itemListElement"]:
+                        if isinstance(el, dict):
+                            expanded.append(el.get("item") if isinstance(el.get("item"), dict) else el)
+        for node in expanded:
+            if not isinstance(node, dict):
+                continue
+            raw_link = _unwrap_wayback_url(str(node.get("url") or node.get("@id") or ""))
+            title = clean_text(node.get("headline") or node.get("name") or "")
+            if not raw_link or len(title) < 15:
+                continue
+            full_url = urljoin(base_url, raw_link)
+            parsed_url = urlsplit(full_url)
+            if parsed_url.netloc.lower().lstrip("www.") != base_netloc:
+                continue
+            if url_pattern and not re.search(url_pattern, full_url):
+                continue
+            if not url_pattern and (ignore_patterns.search(parsed_url.path) or len(parsed_url.path.strip("/")) < 4):
+                continue
+            norm_url = normalize_url(full_url)
+            if norm_url in seen_urls:
+                continue
+            seen_urls.add(norm_url)
+            pub_date = clean_text(node.get("datePublished") or node.get("dateModified") or utc_now().isoformat())
+            summary = clean_text(node.get("description") or title)
+            site_items.append({
+                "title": title,
+                "url": norm_url,
+                "source": f"Web / {label}",
+                "source_type": "scraped_web",
+                "published_at": pub_date,
+                "category": "Hardware",
+                "raw_summary": summary[:2200] if summary else title,
+            })
+            if len(site_items) >= max_items:
+                return site_items
+
+    for a in soup.find_all("a", href=True):
+        href = _unwrap_wayback_url(a["href"].strip())
+        if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
+            continue
+
+        full_url = _unwrap_wayback_url(urljoin(base_url, href))
+        parsed_url = urlsplit(full_url)
+
+        if parsed_url.netloc.lower().lstrip("www.") != base_netloc:
+            continue
+
+        if url_pattern:
+            if not re.search(url_pattern, full_url):
+                continue
+        else:
+            if ignore_patterns.search(parsed_url.path) or len(parsed_url.path.strip("/")) < 4:
+                continue
+
+        norm_url = normalize_url(full_url)
+        if norm_url in seen_urls:
+            continue
+
+        parent = a.find_parent(["article", "li", "div", "section"])
+        title = clean_text(a.get_text())
+        if len(title) < 15:
+            heading = a.find(["h1", "h2", "h3", "h4", "span"])
+            if heading:
+                title = clean_text(heading.get_text())
+        if len(title) < 15:
+            title = clean_text(a.get("title") or a.get("aria-label") or "")
+        if len(title) < 15 and parent:
+            parent_heading = parent.find(["h1", "h2", "h3", "h4"])
+            if parent_heading:
+                title = clean_text(parent_heading.get_text())
+        if len(title) < 15:
+            continue
+
+        seen_urls.add(norm_url)
+
+        pub_date = utc_now().isoformat()
+        date_match = re.search(r"/(20\d{2})[-/](\d{1,2})[-/](\d{1,2})", full_url)
+        if date_match:
+            y, m, d = date_match.groups()
+            pub_date = f"{y}-{int(m):02d}-{int(d):02d}T00:00:00+00:00"
+
+        summary = ""
+        category = "Hardware"
+        if parent:
+            if not date_match:
+                time_tag = parent.find("time")
+                if time_tag and time_tag.get("datetime"):
+                    pub_date = time_tag["datetime"]
+
+            p_tag = parent.find("p")
+            if p_tag:
+                summary = clean_text(p_tag.get_text())
+            else:
+                summary = clean_text(parent.get_text()).replace(title, "").strip()[:400]
+
+            cat_tag = parent.find("a", href=re.compile(r"/category/"))
+            if cat_tag:
+                category = clean_text(cat_tag.get_text())
+
+        site_items.append({
+            "title": title,
+            "url": norm_url,
+            "source": f"Web / {label}",
+            "source_type": "scraped_web",
+            "published_at": pub_date,
+            "category": category,
+            "raw_summary": summary[:2200] if summary else title,
+        })
+
+        if len(site_items) >= max_items:
+            break
+
+    return site_items
+
+
+def _scrape_wp_json_fallback(base_url, label, max_items):
+    """Fallback for WordPress sites (e.g. HPCwire) when HTML/RSS paths return 403."""
+    parsed = urlsplit(base_url)
+    wp_api_url = f"{parsed.scheme}://{parsed.netloc}/wp-json/wp/v2/posts?per_page={max_items}&_fields=link,title,excerpt,date_gmt"
+    headers = {**HTML_BROWSER_HEADERS, "Accept": "application/json,text/plain,*/*", "Referer": f"{parsed.scheme}://{parsed.netloc}/"}
+    try:
+        resp = requests.get(wp_api_url, headers=headers, timeout=15)
+        if resp.status_code != 200:
+            return []
+        posts = resp.json()
+        if not isinstance(posts, list):
+            return []
+        items = []
+        for post in posts[:max_items]:
+            link = normalize_url(str(post.get("link") or ""))
+            title_obj = post.get("title") or {}
+            raw_title = title_obj.get("rendered", "") if isinstance(title_obj, dict) else str(title_obj)
+            title = clean_text(re.sub(r"<[^>]+>", " ", raw_title))
+            if not link or len(title) < 10:
+                continue
+            excerpt_obj = post.get("excerpt") or {}
+            raw_excerpt = excerpt_obj.get("rendered", "") if isinstance(excerpt_obj, dict) else str(excerpt_obj)
+            summary = clean_text(re.sub(r"<[^>]+>", " ", raw_excerpt)) or title
+            pub_date = clean_text(post.get("date_gmt") or utc_now().isoformat())
+            if pub_date and not pub_date.endswith("Z") and "+" not in pub_date:
+                pub_date = f"{pub_date}+00:00"
+            items.append({
+                "title": title,
+                "url": link,
+                "source": f"Web / {label}",
+                "source_type": "scraped_web",
+                "published_at": pub_date,
+                "category": "Hardware",
+                "raw_summary": summary[:2200],
+            })
+        return items
+    except Exception:
+        return []
+
+
+def _scrape_wayback_html_fallback(base_url, label, url_pattern, ignore_patterns, max_items):
+    """Fallback that scrapes raw HTML from a recent Wayback Machine snapshot (id_ mode)."""
+    try:
+        wb_api_url = f"https://archive.org/wayback/available?url={base_url}"
+        wb_resp = requests.get(wb_api_url, timeout=15)
+        if wb_resp.status_code != 200:
+            return []
+        snapshots = (wb_resp.json() or {}).get("archived_snapshots") or {}
+        closest = snapshots.get("closest") or {}
+        if not closest.get("available") or not closest.get("url"):
+            return []
+        ts_str = str(closest.get("timestamp") or "")
+        if len(ts_str) >= 8:
+            try:
+                snap_dt = dt.datetime.strptime(ts_str[:8], "%Y%m%d").replace(tzinfo=dt.timezone.utc)
+                if (utc_now() - snap_dt).days > 7:
+                    return []
+            except Exception:
+                pass
+        snapshot_url = re.sub(
+            r"/web/(\d+)/",
+            r"/web/\1id_/",
+            closest["url"].replace("http://", "https://"),
+        )
+        snap_resp = requests.get(snapshot_url, headers=HTML_BROWSER_HEADERS, timeout=25)
+        if snap_resp.status_code != 200:
+            return []
+        return _parse_html_articles(snap_resp.text, base_url, label, url_pattern, ignore_patterns, max_items)
+    except Exception:
+        return []
+
+
+def _scrape_domain_index_fallback(base_url, label, max_items):
+    """Last-resort domain index scraper when Cloudflare blocks direct HTML, WP-JSON, and Wayback."""
+    clean_domain = urlsplit(base_url).netloc.lower().lstrip("www.")
+    if not clean_domain:
+        return []
+    query_url = f"https://news.google.com/rss/search?q=site:{clean_domain}+when:7d&hl=en-US&gl=US&ceid=US:en"
+    try:
+        resp = requests.get(query_url, headers=REQUEST_HEADERS, timeout=20)
+        if resp.status_code != 200:
+            return []
+        feed = feedparser.parse(resp.content)
+        items = []
+        for entry in getattr(feed, "entries", [])[:max_items]:
+            title = clean_text(entry.get("title", ""))
+            if " - " in title:
+                title_parts = title.rsplit(" - ", 1)
+                if len(title_parts[0]) >= 15:
+                    title = title_parts[0].strip()
+            link = normalize_url(entry.get("link", ""))
+            summary = clean_text(re.sub(r"<[^>]+>", " ", entry.get("summary", entry.get("description", ""))))
+            if not title or not link:
+                continue
+            items.append({
+                "title": title,
+                "url": link,
+                "source": f"Web / {label}",
+                "source_type": "scraped_web",
+                "published_at": entry.get("published", entry.get("updated", utc_now().isoformat())),
+                "category": "Hardware",
+                "raw_summary": summary[:2200] if summary else title,
+            })
+        return items
+    except Exception:
+        return []
+
+
+def scrape_single_html_target(label, target, max_items=None):
+    """Scrape a single HTML target spec ('URL;;regex' or 'URL') with 4-stage 403 resilience."""
+    max_items = max_items or HTML_SCRAPER_MAX_ITEMS_PER_SITE
+    ignore_patterns = re.compile(
+        r"/(about|contact|privacy|terms|login|signup|register|tag|category|author|cart|search|feed)/?",
+        re.IGNORECASE,
+    )
+    if ";;" in target:
+        base_url, url_pattern = target.split(";;", 1)
+        base_url, url_pattern = base_url.strip(), url_pattern.strip()
+    else:
+        base_url, url_pattern = target.strip(), None
+
+    parsed_base = urlsplit(base_url)
+    headers = {
+        **HTML_BROWSER_HEADERS,
+        "Referer": f"{parsed_base.scheme}://{parsed_base.netloc}/",
+    }
+
+    site_items = []
+    try:
+        resp = requests.get(base_url, headers=headers, timeout=20)
+        if resp.status_code == 200:
+            site_items = _parse_html_articles(
+                resp.text, base_url, label, url_pattern, ignore_patterns, max_items
+            )
+        else:
+            log.info(
+                f"html_scraper: direct fetch for '{label}' returned HTTP {resp.status_code}; trying fallbacks..."
+            )
+    except Exception as exc:
+        log.info(f"html_scraper: direct fetch exception for '{label}': {repr(exc)}; trying fallbacks...")
+
+    if not site_items:
+        site_items = _scrape_wp_json_fallback(base_url, label, max_items)
+        if site_items:
+            log.info(f"html_scraper: recovered {len(site_items)} items for '{label}' via WP REST API")
+
+    if not site_items:
+        site_items = _scrape_wayback_html_fallback(
+            base_url, label, url_pattern, ignore_patterns, max_items
+        )
+        if site_items:
+            log.info(f"html_scraper: recovered {len(site_items)} items for '{label}' via Wayback HTML snapshot")
+
+    if not site_items:
+        site_items = _scrape_domain_index_fallback(base_url, label, max_items)
+        if site_items:
+            log.info(f"html_scraper: recovered {len(site_items)} items for '{label}' via domain index fallback")
+
+    site_items.sort(key=lambda x: x["published_at"], reverse=True)
+    log.info(f"html_scraper: scraped {len(site_items)} items from '{label}'")
+    return site_items
+
+
 def fetch_universal_html_scrapers():
     """Fetches and parses articles from all sites defined in HTML_SCRAPER_TARGETS."""
     if not ENABLE_HTML_SCRAPER:
@@ -1735,107 +2058,10 @@ def fetch_universal_html_scrapers():
     targets = get_feed_specs("HTML_SCRAPER_TARGETS", DEFAULT_HTML_SCRAPER_TARGETS)
     all_scraped_items = []
 
-    ignore_patterns = re.compile(
-        r"/(about|contact|privacy|terms|login|signup|register|tag|category|author|cart|search|feed)/?", 
-        re.IGNORECASE
-    )
-
     for label, target in targets:
-        if ";;" in target:
-            base_url, url_pattern = target.split(";;", 1)
-            base_url, url_pattern = base_url.strip(), url_pattern.strip()
-        else:
-            base_url, url_pattern = target.strip(), None
-
-        site_items = []
-        seen_urls = set()
-        base_netloc = urlsplit(base_url).netloc.lower()
-
         try:
-            # 20-second timeout per site so one slow site never stalls the pipeline
-            resp = requests.get(base_url, headers=REQUEST_HEADERS, timeout=20)
-            if resp.status_code != 200:
-                log.warning(f"HTML scraper: '{label}' returned HTTP status {resp.status_code}")
-                continue
-
-            soup = BeautifulSoup(resp.text, "html.parser")
-
-            for a in soup.find_all("a", href=True):
-                href = a["href"].strip()
-                if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
-                    continue
-
-                full_url = urljoin(base_url, href)
-                parsed_url = urlsplit(full_url)
-
-                # Keep on the same domain
-                if parsed_url.netloc.lower() != base_netloc:
-                    continue
-
-                if url_pattern:
-                    if not re.search(url_pattern, full_url):
-                        continue
-                else:
-                    if ignore_patterns.search(parsed_url.path) or len(parsed_url.path.strip("/")) < 4:
-                        continue
-
-                norm_url = normalize_url(full_url)
-                if norm_url in seen_urls:
-                    continue
-
-                title = clean_text(a.get_text())
-                if len(title) < 15:
-                    heading = a.find(["h1", "h2", "h3", "h4"])
-                    if heading:
-                        title = clean_text(heading.get_text())
-                if len(title) < 15:
-                    continue
-
-                seen_urls.add(norm_url)
-
-                # Date extraction
-                pub_date = utc_now().isoformat()
-                date_match = re.search(r"/(20\d{2})[-/](\d{1,2})[-/](\d{1,2})", full_url)
-                if date_match:
-                    y, m, d = date_match.groups()
-                    pub_date = f"{y}-{int(m):02d}-{int(d):02d}T00:00:00+00:00"
-
-                parent = a.find_parent(["article", "li", "div", "section"])
-                summary = ""
-                category = "Hardware"
-                if parent:
-                    if not date_match:
-                        time_tag = parent.find("time")
-                        if time_tag and time_tag.get("datetime"):
-                            pub_date = time_tag["datetime"]
-
-                    p_tag = parent.find("p")
-                    if p_tag:
-                        summary = clean_text(p_tag.get_text())
-                    else:
-                        summary = clean_text(parent.get_text()).replace(title, "").strip()[:400]
-
-                    cat_tag = parent.find("a", href=re.compile(r"/category/"))
-                    if cat_tag:
-                        category = clean_text(cat_tag.get_text())
-
-                site_items.append({
-                    "title": title,
-                    "url": norm_url,
-                    "source": f"Web / {label}",
-                    "source_type": "scraped_web",
-                    "published_at": pub_date,
-                    "category": category,
-                    "raw_summary": summary[:2200] if summary else title,
-                })
-
-                if len(site_items) >= HTML_SCRAPER_MAX_ITEMS_PER_SITE:
-                    break
-
-            site_items.sort(key=lambda x: x["published_at"], reverse=True)
-            log.info(f"html_scraper: scraped {len(site_items)} items from '{label}'")
+            site_items = scrape_single_html_target(label, target, HTML_SCRAPER_MAX_ITEMS_PER_SITE)
             all_scraped_items.extend(site_items)
-
         except Exception as exc:
             log.error(f"html_scraper error scraping '{label}': {repr(exc)}")
 
@@ -2015,7 +2241,9 @@ Relevant ONLY when the item has concrete technical substance about at least one 
 - Semiconductor manufacturing & advanced wafer materials: lithography (EUV/High-NA), deposition, etch, metrology, advanced nodes, compound and ultra-wide bandgap (UWBG) semiconductors (Gallium Oxide / Ga2O3 and aluminum nitride / AlN for extreme high-voltage, high-heat power electronics), Chemical Vapor Deposition (CVD) synthetic diamond substrates and heat spreaders (~2,000 W/m*K bonded directly to silicon to overcome junction-layer thermal bottlenecks), wafer capacity, yield, EDA or physical design that directly affects chips.
 - Power delivery & thermal management: datacenter power delivery, Rack-Scale High-Voltage Power Delivery (400V / 800V DC server rack busbar architectures reducing resistive I^2R copper losses), Vertical Power Delivery (VPD) and on-package Integrated Voltage Regulators (IVR delivering power directly underneath the die), Gallium Nitride (GaN) and Silicon Carbide (SiC) point-of-load (PoL) converter stages operating at multi-megahertz switching frequencies, Direct-to-Chip (DLC) microchannel cold plates and manifold hydraulics, single-phase and two-phase liquid immersion cooling using synthetic dielectric fluids, Liquid-to-Liquid and Liquid-to-Air Coolant Distribution Units (CDUs), in-silicon microfluidic cooling channels etched directly into the backside of active compute dies, rack-scale power and energy efficiency for 1,000W-2,000W+ TDP AI compute.
 - Robotics hardware: sensors, actuators, robot hands, embodied AI hardware, embedded compute, edge AI hardware, physical autonomy systems.
-- Quantum/neuromorphic/photonic compute only if there is a clear AI compute or AI infrastructure angle.
+- Neuromorphic computing: silicon architectures mimicking biological neural spikes (spiking neural networks / SNNs, event-based continuous sensory processors, memristive/analog synaptic crossbars) operating at fractional-milliwatt or ultra-low power budgets.
+- Quantum computing: physical quantum processors (superconducting, trapped-ion, neutral-atom, photonic, silicon-spin, or topological QPUs), fault-tolerant logical qubits, quantum error correction (QEC / surface codes / LDPC), cryo-CMOS control, and quantum hardware using superposition and entanglement to solve combinatorial optimization, quantum chemistry, and cryptographic problems intractable for classical supercomputers.
+- Optical & photonic computing: photonic processors and optical neural networks that replace electrons with photons for matrix-vector multiplication (Mach-Zehnder interferometer / MZI meshes, optical tensor cores, WDM compute) and photonic die-to-die interconnects, bypassing copper thermal and bandwidth bottlenecks.
 - SEC-filing items are relevant only if the title/summary clearly identifies a physical hardware, semiconductor, robotics, datacenter, power, cooling, packaging, substrate, materials, memory, or interconnect signal.
 
 Positive source-quality signals:
@@ -2045,7 +2273,7 @@ Return only valid JSON using this schema:
       "relevant": true,
       "score": 8,
       "category": "AI accelerator",
-      "hardware_domain": "GPU / ASIC / memory / interconnect / packaging / manufacturing / power cooling / robotics hardware / other",
+      "hardware_domain": "GPU / ASIC / memory / interconnect / packaging / manufacturing / power cooling / robotics hardware / quantum / neuromorphic / photonic compute / other",
       "bottleneck_addressed": "compute / memory bandwidth / interconnect / power / thermal / manufacturing capacity / robotics embodiment / other",
       "specific_tech": "Short concrete technology name",
       "why_it_matters": "One or two factual sentences explaining the hardware reason.",
@@ -2120,7 +2348,6 @@ def classify_and_insert(candidates):
     failed_items = []
     new_alerts = []
 
-    # Convert to list so we can count total batches
     batches = list(chunk_list(candidates, LLM_BATCH_SIZE))
     total_batches = len(batches)
 
