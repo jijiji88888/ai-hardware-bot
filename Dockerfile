@@ -19,7 +19,7 @@ RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin botuser \
     && mkdir -p /app/data \
     && chown -R botuser:botuser /app
 
-COPY --chown=botuser:botuser app.py .
+COPY --chown=botuser:botuser app.py scrapers.py ./
 
 USER botuser
 
@@ -29,4 +29,3 @@ HEALTHCHECK --interval=5m --timeout=10s --start-period=2m --retries=3 \
     CMD find /app/data/heartbeat.txt -mmin -15 | grep -q . || exit 1
 
 ENTRYPOINT ["python", "-u", "app.py"]
-
