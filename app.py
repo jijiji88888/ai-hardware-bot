@@ -1650,16 +1650,7 @@ def fetch_standard_rss_2(
 
 def split_fallback_urls(url_value):
     raw = str(url_value or "")
-    urls = []
-    for part in raw.split(";;"):
-        candidate = part.strip()
-        if not candidate:
-            continue
-        if "news.google.com" in urlsplit(candidate).netloc.lower():
-            log.info(f"Skipping disabled Google News fallback URL: {candidate}")
-            continue
-        urls.append(candidate)
-    return urls
+    return [part.strip() for part in raw.split(";;") if part.strip()]
 
 
 def fetch_feed_specs(specs, source_type, max_items_per_feed):
@@ -1687,7 +1678,7 @@ def fetch_feed_specs(specs, source_type, max_items_per_feed):
         )
     if total_for_label == 0 and candidate_urls:
       parsed_root = urlsplit(candidate_urls[0])
-      if parsed_root.scheme and parsed_root.netloc and "news.google.com" not in parsed_root.netloc:
+      if parsed_root.scheme and parsed_root.netloc:
         root_url = f"{parsed_root.scheme}://{parsed_root.netloc}/"
         log.info(f"{source_type}: RSS yielded 0 items for {label}; falling back to HTML scraper on {root_url}")
         scraped_fallback = scrape_single_html_target(label, root_url, max_items_per_feed)
@@ -1720,7 +1711,7 @@ def fetch_feed_specs_2(specs, source_type, max_items_per_feed):
         )
     if total_for_label == 0 and candidate_urls:
       parsed_root = urlsplit(candidate_urls[0])
-      if parsed_root.scheme and parsed_root.netloc and "news.google.com" not in parsed_root.netloc:
+      if parsed_root.scheme and parsed_root.netloc:
         root_url = f"{parsed_root.scheme}://{parsed_root.netloc}/"
         log.info(f"{source_type}: RSS yielded 0 items for {label}; falling back to HTML scraper on {root_url}")
         scraped_fallback = scrape_single_html_target(label, root_url, max_items_per_feed)
@@ -1777,7 +1768,7 @@ def fetch_supply_chain_rss():
     return fetch_feed_specs(specs, "supply_chain_media", SUPPLY_CHAIN_RSS_MAX_ITEMS_PER_FEED)
 
 def scrape_single_html_target(label, target, max_items=None):
-    """Dispatch to dedicated per-source scrapers or universal Chrome-impersonated scraper (zero Google News)."""
+    """Dispatch to dedicated per-source scrapers or universal browser-impersonated scraper."""
     return _scrape_single_html_target_impl(
         label,
         target,

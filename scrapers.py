@@ -18,29 +18,27 @@ except ImportError:
 
 log = logging.getLogger("ai_hardware_bot")
 
+# Fallback headers used ONLY when curl_cffi is unavailable (plain requests).
+# When curl_cffi is active, never override User-Agent or Sec-Ch-Ua* headers:
+# curl_cffi sends the exact header set matching its TLS/HTTP2 fingerprint.
 HTML_BROWSER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
-    "Cache-Control": "no-cache",
-    "Pragma": "no-cache",
-    "Sec-Ch-Ua": '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"',
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": '"Windows"',
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1",
-    "Upgrade-Insecure-Requests": "1",
 }
 
+SCRAPER_PROXY_URL = os.getenv("SCRAPER_PROXY_URL", "").strip()
+JINA_API_KEY = os.getenv("JINA_API_KEY", "").strip()
+
 # Domains known to return HTTP 403 to plain Python requests TLS fingerprints;
-# skip straight to Chrome TLS impersonation (curl_cffi) on these domains.
+# skip straight to browser TLS impersonation (curl_cffi) on these domains.
 _TLS_IMPERSONATE_DOMAINS = {
     "datacenterdynamics.com",
     "hpcwire.com",
 }
 _TLS_IMPERSONATE_LOCK = Lock()
+
+_IMPERSONATE_PROFILES = ("chrome", "safari", "firefox")
 
 
 def _utc_now():
@@ -64,6 +62,12 @@ def _normalize_url(url):
 
 def _normalize_domain(url_str):
     return urlsplit(str(url_str or "")).netloc.lower().lstrip("www.")
+
+
+def _get_proxies():
+    if not SCRAPER_PROXY_URL:
+        return None
+    return {"http": SCRAPER_PROXY_URL, "https": SCRAPER_PROXY_URL}
 
 
 def split_pipe_specs(raw):
@@ -129,32 +133,72 @@ def decode_response_text(resp):
             return raw.decode("utf-8", errors="replace")
 
 
+def _filter_safe_override_headers(headers):
+    """Strip fingerprint-sensitive headers (User-Agent, Sec-Ch-Ua*, Sec-Fetch-*)
+    so curl_cffi's native TLS/HTTP2/header profile stays 100% consistent."""
+    if not headers:
+        return {}
+    blocked_prefixes = ("user-agent", "sec-ch-ua", "sec-fetch-")
+    return {
+        k: v
+        for k, v in headers.items()
+        if not k.lower().startswith(blocked_prefixes)
+    }
+
+
 def browser_get(url, headers=None, timeout=25, accept_json=False):
-    """Fetch a URL using Chrome TLS impersonation (curl_cffi) when available,
-    falling back to requests with browser navigation headers."""
-    parsed = urlsplit(url)
+    """Fetch a URL with curl_cffi browser impersonation (preserving its native
+    TLS + HTTP/2 + header fingerprint without conflicting User-Agent overrides),
+    rotating browser profiles if the first profile receives HTTP 403."""
+    proxies = _get_proxies()
+
+    if curl_requests is not None:
+        safe_headers = _filter_safe_override_headers(headers)
+        if accept_json:
+            safe_headers.setdefault("Accept", "application/json,text/plain,*/*")
+        safe_headers.setdefault("Accept-Language", "en-US,en;q=0.9")
+
+        last_resp = None
+        for profile in _IMPERSONATE_PROFILES:
+            try:
+                kwargs = {
+                    "impersonate": profile,
+                    "timeout": timeout,
+                    "allow_redirects": True,
+                }
+                if safe_headers:
+                    kwargs["headers"] = safe_headers
+                if proxies:
+                    kwargs["proxies"] = proxies
+                resp = curl_requests.get(url, **kwargs)
+                last_resp = resp
+                if resp.status_code == 200:
+                    return resp
+                if resp.status_code not in (403, 429):
+                    return resp
+            except Exception:
+                continue
+        if last_resp is not None:
+            return last_resp
+
+    # Plain requests fallback only when curl_cffi is not installed
     req_headers = dict(HTML_BROWSER_HEADERS)
-    if parsed.scheme and parsed.netloc:
-        req_headers["Referer"] = f"{parsed.scheme}://{parsed.netloc}/"
     if accept_json:
         req_headers["Accept"] = "application/json,text/plain,*/*"
     if headers:
         req_headers.update(headers)
-
-    if curl_requests is not None:
-        return curl_requests.get(
-            url,
-            headers=req_headers,
-            impersonate="chrome",
-            timeout=timeout,
-            allow_redirects=True,
-        )
-    return requests.get(url, headers=req_headers, timeout=timeout, allow_redirects=True)
+    return requests.get(
+        url,
+        headers=req_headers,
+        timeout=timeout,
+        allow_redirects=True,
+        proxies=proxies,
+    )
 
 
 def fetch_rss_with_tls_fallback(feed_url, request_headers, timeout=35):
     """Fetch an RSS/Atom URL, skipping plain requests on known-403 domains and
-    auto-escalating HTTP 403 responses to Chrome TLS impersonation."""
+    auto-escalating HTTP 403 responses to browser TLS impersonation."""
     feed_domain = _normalize_domain(feed_url)
     if feed_domain in _TLS_IMPERSONATE_DOMAINS and curl_requests is not None:
         return browser_get(feed_url, headers=request_headers, timeout=timeout)
@@ -167,7 +211,7 @@ def fetch_rss_with_tls_fallback(feed_url, request_headers, timeout=35):
 
 
 # =========================
-# Dedicated Per-Source Scrapers & Universal Fallback (Zero Google News)
+# Dedicated Per-Source Scrapers & Universal Fallback
 # =========================
 
 def _unwrap_wayback_url(url_str):
@@ -190,6 +234,7 @@ def is_garbage_title(title):
         "read more", "learn more", "view all", "see more", "click here",
         "subscribe", "sign in", "log in", "register", "cookie policy",
         "privacy policy", "terms of service", "all news", "latest news",
+        "just a moment...", "attention required! | cloudflare",
     }:
         return True
     if title.count("\ufffd") >= 2:
@@ -359,6 +404,79 @@ def _parse_html_articles(html_text, base_url, label, url_pattern, ignore_pattern
     return site_items
 
 
+def _parse_markdown_links(md_text, base_url, label, url_pattern, ignore_patterns, max_items, normalize_url_fn=_normalize_url):
+    """Extract article items from rendered Markdown (e.g., Jina Reader output)."""
+    items = []
+    seen = set()
+    base_netloc = urlsplit(base_url).netloc.lower().lstrip("www.")
+
+    # Match [Title](https://...) while ignoring markdown image syntax ![alt](img)
+    for match in re.finditer(r"(?<!!)\[([^\]]{15,240})\]\((https?://[^\s\)]+)\)", md_text):
+        raw_title, raw_url = match.group(1), match.group(2)
+        # Clean nested markdown formatting (**bold**, ### headings, image refs)
+        cleaned_title = re.sub(r"!\[[^\]]*\]\([^\)]*\)", "", raw_title)
+        cleaned_title = re.sub(r"[#*_`]+", "", cleaned_title)
+        title = clean_scraped_title(cleaned_title)
+        if is_garbage_title(title):
+            continue
+
+        parsed = urlsplit(raw_url)
+        if parsed.netloc.lower().lstrip("www.") != base_netloc:
+            continue
+        if url_pattern and not re.search(url_pattern, raw_url):
+            continue
+        if not url_pattern and (ignore_patterns.search(parsed.path) or len(parsed.path.strip("/")) < 4):
+            continue
+
+        norm_url = normalize_url_fn(raw_url)
+        if not norm_url or norm_url in seen:
+            continue
+        seen.add(norm_url)
+
+        pub_date = _utc_now().isoformat()
+        date_match = re.search(r"/(20\d{2})[-/](\d{1,2})[-/](\d{1,2})", norm_url)
+        if date_match:
+            y, m, d = date_match.groups()
+            pub_date = f"{y}-{int(m):02d}-{int(d):02d}T00:00:00+00:00"
+
+        items.append({
+            "title": title,
+            "url": norm_url,
+            "source": f"Web / {label}",
+            "source_type": "scraped_web",
+            "published_at": pub_date,
+            "category": "Hardware",
+            "raw_summary": title,
+        })
+        if len(items) >= max_items:
+            break
+    return items
+
+
+def _scrape_via_jina_reader(base_url, label, url_pattern, ignore_patterns, max_items, normalize_url_fn=_normalize_url):
+    """Fetch a rendered page via Jina Reader (r.jina.ai) when direct datacenter IP
+    requests hit a Cloudflare JS/WAF challenge."""
+    reader_url = f"https://r.jina.ai/{base_url}"
+    headers = {
+        "Accept": "text/plain,text/markdown,*/*",
+        "X-Return-Format": "markdown",
+    }
+    if JINA_API_KEY:
+        headers["Authorization"] = f"Bearer {JINA_API_KEY}"
+    try:
+        resp = requests.get(reader_url, headers=headers, timeout=30)
+        if resp.status_code != 200:
+            return []
+        md_text = decode_response_text(resp)
+        if not md_text or "Just a moment..." in md_text[:500]:
+            return []
+        return _parse_markdown_links(
+            md_text, base_url, label, url_pattern, ignore_patterns, max_items, normalize_url_fn
+        )
+    except Exception:
+        return []
+
+
 def _scrape_wp_json_api(base_url, label, max_items, normalize_url_fn=_normalize_url):
     parsed = urlsplit(base_url)
     wp_api_url = (
@@ -451,28 +569,21 @@ def _scrape_xml_sitemap(sitemap_urls, label, url_pattern, max_items, normalize_u
 
 
 def _scrape_wayback_html_fallback(base_url, label, url_pattern, ignore_patterns, max_items, normalize_url_fn=_normalize_url):
+    """Fetch the most recent HTTP 200 Wayback Machine snapshot within 7 days via CDX API."""
     try:
-        wb_api_url = f"https://archive.org/wayback/available?url={base_url}"
-        wb_resp = requests.get(wb_api_url, timeout=15)
-        if wb_resp.status_code != 200:
-            return []
-        snapshots = (wb_resp.json() or {}).get("archived_snapshots") or {}
-        closest = snapshots.get("closest") or {}
-        if not closest.get("available") or not closest.get("url"):
-            return []
-        ts_str = str(closest.get("timestamp") or "")
-        if len(ts_str) >= 8:
-            try:
-                snap_dt = dt.datetime.strptime(ts_str[:8], "%Y%m%d").replace(tzinfo=dt.timezone.utc)
-                if (_utc_now() - snap_dt).days > 7:
-                    return []
-            except Exception:
-                pass
-        snapshot_url = re.sub(
-            r"/web/(\d+)/",
-            r"/web/\1id_/",
-            closest["url"].replace("http://", "https://"),
+        from_date = (_utc_now() - dt.timedelta(days=7)).strftime("%Y%m%d")
+        cdx_url = (
+            f"https://web.archive.org/cdx/search/cdx?url={base_url}"
+            f"&output=json&limit=-1&filter=statuscode:200&from={from_date}&fl=timestamp,original"
         )
+        cdx_resp = requests.get(cdx_url, timeout=15)
+        if cdx_resp.status_code != 200:
+            return []
+        rows = cdx_resp.json() or []
+        if len(rows) < 2:
+            return []
+        timestamp, original = rows[-1][0], rows[-1][1]
+        snapshot_url = f"https://web.archive.org/web/{timestamp}id_/{original}"
         snap_resp = requests.get(snapshot_url, headers=HTML_BROWSER_HEADERS, timeout=25)
         if snap_resp.status_code != 200:
             return []
@@ -484,7 +595,7 @@ def _scrape_wayback_html_fallback(base_url, label, url_pattern, ignore_patterns,
 
 
 def scrape_trendforce_news(base_url, label, max_items, normalize_url_fn=_normalize_url):
-    """Dedicated scraper for TrendForce News (clean UTF-8 HTML -> WP feed -> Wayback)."""
+    """Dedicated scraper for TrendForce News (clean UTF-8 HTML -> WP feed -> Jina Reader -> Wayback)."""
     news_url = base_url or "https://www.trendforce.com/news/"
     tf_pattern = r"/(?:news/\d{4}/\d{2}/\d{2}/|presscenter/news/\d+)"
     ignore_patterns = re.compile(r"/(about|contact|privacy|terms|login|search)/?", re.IGNORECASE)
@@ -511,6 +622,11 @@ def scrape_trendforce_news(base_url, label, max_items, normalize_url_fn=_normali
     except Exception as exc:
         log.info(f"scraper[TrendForce]: feed fetch issue: {repr(exc)}")
 
+    items = _scrape_via_jina_reader(news_url, label, tf_pattern, ignore_patterns, max_items, normalize_url_fn)
+    if items:
+        log.info(f"scraper[TrendForce]: extracted {len(items)} items via Jina Reader")
+        return items
+
     items = _scrape_wayback_html_fallback(news_url, label, tf_pattern, ignore_patterns, max_items, normalize_url_fn)
     if items:
         log.info(f"scraper[TrendForce]: recovered {len(items)} items via Wayback snapshot")
@@ -518,7 +634,7 @@ def scrape_trendforce_news(base_url, label, max_items, normalize_url_fn=_normali
 
 
 def scrape_datacenterdynamics(base_url, label, max_items, normalize_url_fn=_normalize_url):
-    """Dedicated scraper for Data Center Dynamics (Chrome TLS impersonation; zero Google News)."""
+    """Dedicated scraper for Data Center Dynamics (clean TLS impersonation -> Jina Reader -> XML sitemap -> Wayback)."""
     news_url = base_url or "https://www.datacenterdynamics.com/en/news/"
     dcd_pattern = r"/en/(?:news|analysis|opinions|product-news)/[a-z0-9-]+"
     ignore_patterns = re.compile(r"/(about|contact|privacy|terms|login|register|search)/?", re.IGNORECASE)
@@ -547,9 +663,14 @@ def scrape_datacenterdynamics(base_url, label, max_items, normalize_url_fn=_norm
                 log.info(f"scraper[DCD]: extracted {len(items)} items from HTML")
                 return items
         else:
-            log.info(f"scraper[DCD]: HTML returned HTTP {resp.status_code}")
+            log.info(f"scraper[DCD]: HTML returned HTTP {resp.status_code}; trying Jina Reader & sitemap...")
     except Exception as exc:
         log.info(f"scraper[DCD]: HTML fetch issue: {repr(exc)}")
+
+    items = _scrape_via_jina_reader(news_url, label, dcd_pattern, ignore_patterns, max_items, normalize_url_fn)
+    if items:
+        log.info(f"scraper[DCD]: extracted {len(items)} items via Jina Reader")
+        return items
 
     items = _scrape_xml_sitemap(
         [
@@ -573,7 +694,7 @@ def scrape_datacenterdynamics(base_url, label, max_items, normalize_url_fn=_norm
 
 
 def scrape_hpcwire(base_url, label, max_items, normalize_url_fn=_normalize_url):
-    """Dedicated scraper for HPCwire (WP REST API -> TLS-impersonated RSS -> HTML -> Wayback; zero Google News)."""
+    """Dedicated scraper for HPCwire (WP REST API -> TLS-impersonated RSS -> HTML -> Jina Reader -> Wayback)."""
     site_url = base_url or "https://www.hpcwire.com/"
     hpc_pattern = r"/(?:20\d{2}/\d{2}/\d{2}|off-the-wire)/[a-z0-9-]+"
     ignore_patterns = re.compile(r"/(about|contact|privacy|terms|login|register|search|tag|author)/?", re.IGNORECASE)
@@ -603,9 +724,14 @@ def scrape_hpcwire(base_url, label, max_items, normalize_url_fn=_normalize_url):
                 log.info(f"scraper[HPCwire]: extracted {len(items)} items from HTML")
                 return items
         else:
-            log.info(f"scraper[HPCwire]: HTML returned HTTP {resp.status_code}")
+            log.info(f"scraper[HPCwire]: HTML returned HTTP {resp.status_code}; trying Jina Reader & Wayback...")
     except Exception as exc:
         log.info(f"scraper[HPCwire]: HTML fetch issue: {repr(exc)}")
+
+    items = _scrape_via_jina_reader(site_url, label, hpc_pattern, ignore_patterns, max_items, normalize_url_fn)
+    if items:
+        log.info(f"scraper[HPCwire]: extracted {len(items)} items via Jina Reader")
+        return items
 
     items = _scrape_wayback_html_fallback(site_url, label, hpc_pattern, ignore_patterns, max_items, normalize_url_fn)
     if items:
@@ -622,7 +748,7 @@ DEDICATED_SCRAPERS = {
 
 def scrape_single_html_target(label, target, max_items=12, normalize_url_fn=_normalize_url):
     """Dispatch to a dedicated per-source scraper when available, or fall back to
-    the universal Chrome-impersonated HTML scraper (zero Google News fallback)."""
+    the universal browser-impersonated HTML scraper."""
     ignore_patterns = re.compile(
         r"/(about|contact|privacy|terms|login|signup|register|tag|category|author|cart|search|feed)/?",
         re.IGNORECASE,
@@ -664,6 +790,13 @@ def scrape_single_html_target(label, target, max_items=12, normalize_url_fn=_nor
         site_items = _scrape_wp_json_api(base_url, label, max_items, normalize_url_fn)
         if site_items:
             log.info(f"html_scraper: recovered {len(site_items)} items for '{label}' via WP REST API")
+
+    if not site_items:
+        site_items = _scrape_via_jina_reader(
+            base_url, label, url_pattern, ignore_patterns, max_items, normalize_url_fn
+        )
+        if site_items:
+            log.info(f"html_scraper: recovered {len(site_items)} items for '{label}' via Jina Reader")
 
     if not site_items:
         site_items = _scrape_wayback_html_fallback(
