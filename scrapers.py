@@ -4,9 +4,8 @@ import json
 import logging
 import os
 import re
-import time
 from threading import Lock
-from urllib.parse import urlencode, urljoin, urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import feedparser
 import requests
@@ -33,10 +32,6 @@ HTML_BROWSER_HEADERS = {
     "Sec-Fetch-Site": "none",
     "Sec-Fetch-User": "?1",
     "Upgrade-Insecure-Requests": "1",
-}
-
-ARXIV_HEADERS = {
-    "User-Agent": "ai-hardware-trend-bot/1.0 (contact: your-real-email@example.com)"
 }
 
 # Domains known to return HTTP 403 to plain Python requests TLS fingerprints;
@@ -169,142 +164,6 @@ def fetch_rss_with_tls_fallback(feed_url, request_headers, timeout=35):
             _TLS_IMPERSONATE_DOMAINS.add(feed_domain)
         response = browser_get(feed_url, headers=request_headers, timeout=timeout)
     return response
-
-
-# =========================
-# Two-Stage arXiv Fetcher (CDN RSS + Polite Chunked Atom API)
-# =========================
-
-def _clean_arxiv_summary(raw_summary):
-    """Strip rss.arxiv.org 'arXiv:XXXX Announce Type: ... Abstract:' boilerplate."""
-    text = _clean_text(raw_summary or "")
-    text = re.sub(
-        r"^arXiv:\S+\s+Announce\s+Type:\s*\S+\s*Abstract:\s*",
-        "",
-        text,
-        flags=re.IGNORECASE,
-    )
-    return text.strip()[:2200]
-
-
-def _extract_arxiv_categories(entry):
-    cats = []
-    for tag in entry.get("tags", []) or []:
-        term = (tag.get("term") or "").strip()
-        if term:
-            cats.append(term)
-    if not cats and entry.get("category"):
-        cats.append(str(entry.get("category")).strip())
-    return cats
-
-
-def _fetch_arxiv_rss(categories, timeout=30):
-    """Fast primary fetch from arXiv's CDN-cached multi-category RSS feed."""
-    if not categories:
-        return []
-    feed_url = "https://rss.arxiv.org/rss/" + "+".join(categories)
-    try:
-        resp = requests.get(feed_url, headers=ARXIV_HEADERS, timeout=timeout)
-        resp.raise_for_status()
-        parsed = feedparser.parse(resp.content)
-        entries = list(getattr(parsed, "entries", []) or [])
-        log.info(f"arXiv CDN RSS returned {len(entries)} entries across {len(categories)} categories")
-        return entries
-    except Exception as exc:
-        log.warning(f"arXiv CDN RSS fetch failed ({feed_url}): {repr(exc)}")
-        return []
-
-
-def _fetch_arxiv_atom(url, max_retries=2, timeout=45):
-    """Direct fetch + parse of the arXiv Atom API with realistic timeout and backoff."""
-    last_exc = None
-    for attempt in range(max_retries):
-        try:
-            resp = requests.get(url, headers=ARXIV_HEADERS, timeout=timeout)
-            resp.raise_for_status()
-            parsed = feedparser.parse(resp.content)
-            if parsed.bozo and not parsed.entries:
-                raise ValueError(f"feedparser bozo with no entries: {parsed.bozo_exception}")
-            return list(parsed.entries)
-        except Exception as exc:
-            last_exc = exc
-            log.warning(f"arXiv API attempt {attempt + 1}/{max_retries} failed: {repr(exc)}")
-            if attempt < max_retries - 1:
-                time.sleep(3 * (attempt + 1))
-    log.error(f"arXiv API chunk failed after {max_retries} attempts: {repr(last_exc)}")
-    return []
-
-
-def fetch_arxiv_items(
-    categories,
-    results_per_category=20,
-    chunk_size=3,
-    api_timeout=45,
-    normalize_url_fn=_normalize_url,
-    clean_text_fn=_clean_text,
-):
-    """Fetch arXiv papers via Stage 1 (fast CDN RSS) + Stage 2 (polite 3-category chunked Atom API)."""
-    items = []
-    if not categories:
-        return items
-
-    buckets = {cat: [] for cat in categories}
-    seen_per_bucket = {cat: set() for cat in categories}
-
-    def _bucket_entries(entries, target_cats):
-        for entry in entries:
-            entry_cats = _extract_arxiv_categories(entry)
-            link = normalize_url_fn(entry.get("link", ""))
-            if not link:
-                continue
-            for cat in target_cats:
-                if len(buckets[cat]) >= results_per_category:
-                    continue
-                if cat in entry_cats and link not in seen_per_bucket[cat]:
-                    seen_per_bucket[cat].add(link)
-                    buckets[cat].append({
-                        "title": clean_text_fn(entry.get("title", "")),
-                        "url": link,
-                        "source": f"arXiv / {cat}",
-                        "source_type": "research",
-                        "published_at": entry.get("published", entry.get("updated", _utc_now().isoformat())),
-                        "raw_summary": _clean_arxiv_summary(entry.get("summary", entry.get("description", ""))),
-                        "categories": entry_cats,
-                    })
-
-    # Stage 1: Fast CDN RSS across all categories
-    rss_entries = _fetch_arxiv_rss(categories, timeout=30)
-    if rss_entries:
-        _bucket_entries(rss_entries, categories)
-
-    # Stage 2: Small-chunk Atom API fallback for categories still short of quota
-    missing_cats = [cat for cat in categories if len(buckets[cat]) < results_per_category]
-    if missing_cats:
-        chunk_size = max(1, int(chunk_size))
-        chunks = [missing_cats[i : i + chunk_size] for i in range(0, len(missing_cats), chunk_size)]
-        for idx, chunk in enumerate(chunks):
-            if idx > 0:
-                time.sleep(3.0)  # arXiv API politeness (1 req / 3s)
-            chunk_query = "(" + " OR ".join(f"cat:{c}" for c in chunk) + ")"
-            chunk_max = min(120, max(30, results_per_category * len(chunk) * 2))
-            params = {
-                "search_query": chunk_query,
-                "start": 0,
-                "max_results": chunk_max,
-                "sortBy": "submittedDate",
-                "sortOrder": "descending",
-            }
-            url = "https://export.arxiv.org/api/query?" + urlencode(params)
-            api_entries = _fetch_arxiv_atom(url, max_retries=2, timeout=api_timeout)
-            if api_entries:
-                _bucket_entries(api_entries, chunk)
-
-    for cat, bucketed in buckets.items():
-        if len(bucketed) < results_per_category:
-            log.info(f"arXiv / {cat}: {len(bucketed)}/{results_per_category} items collected")
-        items.extend(bucketed)
-
-    return items
 
 
 # =========================

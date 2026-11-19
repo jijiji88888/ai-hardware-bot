@@ -6,7 +6,6 @@
    - Driven by `.env` switches (`ENABLE_*`), per-source caps (`*_MAX_ITEMS*`), `ARXIV_CATEGORIES`, and direct `Label=URL` feed/scraper specifications parsed via `get_feed_specs()` in `app.py`.
    - Fetches candidate articles and preprints with **equal source treatment** (`fair_cap_items` round-robins across `arXiv`, `Hacker News`, `Techmeme`, `Semiconductor Engineering`, `The Register HPC`, `ServeTheHome`, `OCP Blog`, `Power Electronics News`, `EE Times`, `Blocks and Files`, `Chips and Cheese`, `Quantum Computing Report`, `DIGITIMES Asia`, `TrendForce`, `Data Center Dynamics`, and `HPCwire`).
    - Uses dedicated per-source scrapers (`scrape_trendforce_news`, `scrape_datacenterdynamics`, `scrape_hpcwire`) backed by Chrome TLS impersonation (`curl_cffi`) and clean UTF-8 decoding, plus a universal HTML scraper for custom targets — with **zero Google News fallback**.
-   - Fetches `arXiv` via a two-stage pipeline: fast CDN-cached multi-category RSS (`https://rss.arxiv.org/rss/...`) followed by polite 3-category chunked Atom API queries (`timeout=45s`, `<=120` results per chunk) for any remaining quota.
    - Uses a unified in-memory signal scanner (`HARDWARE_DOMAIN_TAXONOMY` / `match_hardware_signals`) and the OpenRouter LLM classifier (`classify_batch` in `app.py`) to evaluate relevance equally across **all 8 physical hardware domains** into `agi_hardware_trends.db` (SQLite WAL mode).
 
 2. **[`ajsfgu9/tech-trend-researcher`](https://github.com/ajsfgu9/tech-trend-researcher) (Social Trend Researcher & Viral Feature Matcher)**:
