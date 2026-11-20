@@ -30,11 +30,12 @@ HTML_BROWSER_HEADERS = {
 SCRAPER_PROXY_URL = os.getenv("SCRAPER_PROXY_URL", "").strip()
 JINA_API_KEY = os.getenv("JINA_API_KEY", "").strip()
 
-# Domains known to return HTTP 403 to plain Python requests TLS fingerprints;
-# skip straight to browser TLS impersonation (curl_cffi) on these domains.
+# Domains known to return HTTP 403 or Cloudflare bot challenges to plain Python requests
+# TLS fingerprints; skip straight to browser TLS impersonation (curl_cffi) on these domains.
 _TLS_IMPERSONATE_DOMAINS = {
     "datacenterdynamics.com",
     "hpcwire.com",
+    "opencompute.org",
 }
 _TLS_IMPERSONATE_LOCK = Lock()
 
@@ -234,12 +235,60 @@ def is_garbage_title(title):
         "read more", "learn more", "view all", "see more", "click here",
         "subscribe", "sign in", "log in", "register", "cookie policy",
         "privacy policy", "terms of service", "all news", "latest news",
-        "just a moment...", "attention required! | cloudflare",
+        "continue reading", "just a moment...", "attention required! | cloudflare",
     }:
         return True
     if title.count("\ufffd") >= 2:
         return True
     return False
+
+
+def _parse_human_date_to_iso(text):
+    """Parse common human-readable blog dates (e.g. 'November 5, 2026', 'Nov 5, 2026',
+    '2026-11-05', '11/5/2026') into ISO-8601 UTC format, or return empty string."""
+    if not text:
+        return ""
+    cleaned = _clean_text(text)
+
+    # Match 'November 5, 2026' or 'Nov 5, 2026' (optionally prefixed with 'Date:')
+    m_long = re.search(
+        r"\b("
+        r"January|February|March|April|May|June|July|August|September|October|November|December|"
+        r"Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec"
+        r")\.?\s+(\d{1,2}),?\s+(20\d{2})\b",
+        cleaned,
+        re.IGNORECASE,
+    )
+    if m_long:
+        month_str, day_str, year_str = m_long.groups()
+        month_norm = month_str[:3].capitalize()
+        try:
+            parsed = dt.datetime.strptime(f"{month_norm} {int(day_str)} {year_str}", "%b %d %Y")
+            return parsed.replace(tzinfo=dt.timezone.utc).isoformat()
+        except ValueError:
+            pass
+
+    # Match ISO 'YYYY-MM-DD'
+    m_iso = re.search(r"\b(20\d{2})-(\d{1,2})-(\d{1,2})\b", cleaned)
+    if m_iso:
+        y, m, d = m_iso.groups()
+        try:
+            parsed = dt.datetime(int(y), int(m), int(d), tzinfo=dt.timezone.utc)
+            return parsed.isoformat()
+        except ValueError:
+            pass
+
+    # Match US numeric 'M/D/YYYY'
+    m_us = re.search(r"\b(\d{1,2})/(\d{1,2})/(20\d{2})\b", cleaned)
+    if m_us:
+        m, d, y = m_us.groups()
+        try:
+            parsed = dt.datetime(int(y), int(m), int(d), tzinfo=dt.timezone.utc)
+            return parsed.isoformat()
+        except ValueError:
+            pass
+
+    return ""
 
 
 def _parse_rss_bytes_to_scraped_items(raw_bytes, label, max_items, normalize_url_fn=_normalize_url):
@@ -306,7 +355,7 @@ def _parse_html_articles(html_text, base_url, label, url_pattern, ignore_pattern
             parsed_url = urlsplit(full_url)
             if parsed_url.netloc.lower().lstrip("www.") != base_netloc:
                 continue
-            if url_pattern and not re.search(url_pattern, full_url):
+            if url_pattern and not re.search(url_pattern, full_url, re.IGNORECASE):
                 continue
             if not url_pattern and (ignore_patterns.search(parsed_url.path) or len(parsed_url.path.strip("/")) < 4):
                 continue
@@ -340,7 +389,7 @@ def _parse_html_articles(html_text, base_url, label, url_pattern, ignore_pattern
             continue
 
         if url_pattern:
-            if not re.search(url_pattern, full_url):
+            if not re.search(url_pattern, full_url, re.IGNORECASE):
                 continue
         else:
             if ignore_patterns.search(parsed_url.path) or len(parsed_url.path.strip("/")) < 4:
@@ -380,6 +429,10 @@ def _parse_html_articles(html_text, base_url, label, url_pattern, ignore_pattern
                 time_tag = parent.find("time")
                 if time_tag and time_tag.get("datetime"):
                     pub_date = time_tag["datetime"]
+                else:
+                    parsed_human_date = _parse_human_date_to_iso(parent.get_text(" ", strip=True))
+                    if parsed_human_date:
+                        pub_date = parsed_human_date
             p_tag = parent.find("p")
             if p_tag:
                 summary = clean_scraped_title(p_tag.get_text())
@@ -423,7 +476,7 @@ def _parse_markdown_links(md_text, base_url, label, url_pattern, ignore_patterns
         parsed = urlsplit(raw_url)
         if parsed.netloc.lower().lstrip("www.") != base_netloc:
             continue
-        if url_pattern and not re.search(url_pattern, raw_url):
+        if url_pattern and not re.search(url_pattern, raw_url, re.IGNORECASE):
             continue
         if not url_pattern and (ignore_patterns.search(parsed.path) or len(parsed.path.strip("/")) < 4):
             continue
@@ -438,6 +491,12 @@ def _parse_markdown_links(md_text, base_url, label, url_pattern, ignore_patterns
         if date_match:
             y, m, d = date_match.groups()
             pub_date = f"{y}-{int(m):02d}-{int(d):02d}T00:00:00+00:00"
+        else:
+            # Look ahead briefly in rendered Markdown for a 'Date: Month DD, YYYY' line
+            trailing = md_text[match.end():match.end() + 240]
+            parsed_human_date = _parse_human_date_to_iso(trailing)
+            if parsed_human_date:
+                pub_date = parsed_human_date
 
         items.append({
             "title": title,
@@ -537,7 +596,7 @@ def _scrape_xml_sitemap(sitemap_urls, label, url_pattern, max_items, normalize_u
                 loc = normalize_url_fn(loc_tag.get_text().strip())
                 if not loc or loc in seen:
                     continue
-                if url_pattern and not re.search(url_pattern, loc):
+                if url_pattern and not re.search(url_pattern, loc, re.IGNORECASE):
                     continue
                 seen.add(loc)
                 title_tag = url_tag.find("news:title") or url_tag.find("title")
@@ -739,10 +798,65 @@ def scrape_hpcwire(base_url, label, max_items, normalize_url_fn=_normalize_url):
     return items
 
 
+def scrape_ocp_blog(base_url, label, max_items, normalize_url_fn=_normalize_url):
+    """Dedicated scraper for Open Compute Project Blog (clean TLS-impersonated HTML -> Jina Reader -> XML sitemap -> Wayback)."""
+    parsed_in = urlsplit(base_url or "")
+    # Normalize root/legacy RSS URLs to the canonical OCP news/blog listing page
+    if parsed_in.path.rstrip("/") in ("", "/blog/rss", "/blog/feed"):
+        blog_url = "https://www.opencompute.org/blog"
+    else:
+        blog_url = base_url or "https://www.opencompute.org/blog"
+
+    ocp_pattern = r"/blog/(?!(?:author|tag|category|rss|feed|page|search)(?:/|$))[a-z0-9][a-z0-9-]{3,}/?$"
+    ignore_patterns = re.compile(
+        r"/(about|contact|privacy|terms|login|register|search|author|tag|category|rss|feed)/?",
+        re.IGNORECASE,
+    )
+
+    try:
+        resp = browser_get(blog_url, timeout=20)
+        if resp.status_code == 200:
+            items = _parse_html_articles(
+                decode_response_text(resp), blog_url, label, ocp_pattern, ignore_patterns, max_items, normalize_url_fn
+            )
+            if items:
+                log.info(f"scraper[OCP]: extracted {len(items)} items from HTML")
+                return items
+        else:
+            log.info(f"scraper[OCP]: HTML returned HTTP {resp.status_code}; trying Jina Reader & sitemap...")
+    except Exception as exc:
+        log.info(f"scraper[OCP]: HTML fetch issue: {repr(exc)}")
+
+    items = _scrape_via_jina_reader(blog_url, label, ocp_pattern, ignore_patterns, max_items, normalize_url_fn)
+    if items:
+        log.info(f"scraper[OCP]: extracted {len(items)} items via Jina Reader")
+        return items
+
+    items = _scrape_xml_sitemap(
+        [
+            "https://www.opencompute.org/sitemap.xml",
+            "https://www.opencompute.org/blog/sitemap.xml",
+        ],
+        label,
+        ocp_pattern,
+        max_items,
+        normalize_url_fn,
+    )
+    if items:
+        log.info(f"scraper[OCP]: extracted {len(items)} items from XML sitemap")
+        return items
+
+    items = _scrape_wayback_html_fallback(blog_url, label, ocp_pattern, ignore_patterns, max_items, normalize_url_fn)
+    if items:
+        log.info(f"scraper[OCP]: recovered {len(items)} items via Wayback snapshot")
+    return items
+
+
 DEDICATED_SCRAPERS = {
     "trendforce.com": scrape_trendforce_news,
     "datacenterdynamics.com": scrape_datacenterdynamics,
     "hpcwire.com": scrape_hpcwire,
+    "opencompute.org": scrape_ocp_blog,
 }
 
 
