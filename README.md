@@ -6,13 +6,28 @@
    - Driven by `.env` switches (`ENABLE_*`), per-source caps (`*_MAX_ITEMS*`), `ARXIV_CATEGORIES`, and direct `Label=URL` feed/scraper specifications parsed via `get_feed_specs()` in `app.py`.
    - Fetches candidate articles and preprints with **equal source treatment** (`fair_cap_items` round-robins across `arXiv`, `Hacker News`, `Techmeme`, `Semiconductor Engineering`, `The Register HPC`, `ServeTheHome`, `OCP Blog`, `Power Electronics News`, `EE Times`, `Blocks and Files`, `Chips and Cheese`, `Quantum Computing Report`, `DIGITIMES Asia`, `TrendForce`, `Data Center Dynamics`, and `HPCwire`).
    - Uses dedicated per-source scrapers (`scrape_trendforce_news`, `scrape_datacenterdynamics`, `scrape_hpcwire`) backed by Chrome TLS impersonation (`curl_cffi`) and clean UTF-8 decoding, plus a universal HTML scraper for custom targets — with **zero Google News fallback**.
-   - Uses the OpenRouter LLM classifier (`classify_batch` in `app.py`) to evaluate relevance equally across **all 8 physical hardware domains** into `agi_hardware_trends.db` (SQLite WAL mode).
+   - Uses a dual-provider LLM classifier (`classify_batch` in `app.py`, supporting **OpenRouter** and the **Official Google Gemini API** with optional automatic failover) to evaluate relevance equally across **all 8 physical hardware domains** into `agi_hardware_trends.db` (SQLite WAL mode).
 
 2. **[`ajsfgu9/tech-trend-researcher`](https://github.com/ajsfgu9/tech-trend-researcher) (Social Trend Researcher & Viral Feature Matcher)**:
    - Monitors broad social & developer discussion channels (`Reddit`, `Hacker News`, `GitHub`, social tech clusters) to discover what is currently trending and what is likely to go viral next.
    - Cross-compares live social trends against the previously sorted items in `agi_hardware_trends.db` to produce a two-part output:
      - **Output 1 (`trending_now`)**: What is trending right now across the research pipeline and why it is poised to gain traction.
      - **Output 2 (`database_viral_matches`)**: Whether any previously sorted item in `agi_hardware_trends.db` shares identical technical/narrative features (`bottleneck_addressed`, `specific_tech`, `hardware_domain`, information asymmetry, and controversy triggers) to go viral online—listing the exact matching database items if `YES`, or outputting `NO` if none match.
+
+## LLM Provider Configuration (OpenRouter + Official Gemini API)
+
+OpenRouter remains the default provider (`LLM_PROVIDER=openrouter`), so existing `.env` setups continue working without changes. To switch to the Official Google Gemini API or configure automatic failover between both providers, set these variables in `.env`:
+
+```ini
+LLM_PROVIDER=openrouter        # "openrouter" (default) or "gemini"
+LLM_FALLBACK_PROVIDER=         # Optional: "gemini" or "openrouter" for automatic failover
+
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+OPENROUTER_MODEL=deepseek/deepseek-v4-flash
+
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-3.5-flash-lite   # Or gemini-3.8-flash
+```
 
 ## Unified Hardware Layers (Old + New Topics Integrated Equally)
 
