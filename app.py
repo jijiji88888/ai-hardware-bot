@@ -224,290 +224,6 @@ DEFAULT_SEC_EFTS_QUERY = (
 )
 SEC_EFTS_QUERY = os.getenv("SEC_EFTS_QUERY", DEFAULT_SEC_EFTS_QUERY).strip()
 
-# =========================
-# Unified Hardware Domain Taxonomy (Equal In-Memory Signal Detection Across Old & New Topics)
-# =========================
-HARDWARE_DOMAIN_TAXONOMY = [
-    {
-        "domain": "AI accelerator",
-        "bottleneck": "compute",
-        "subtopics": [
-            (
-                "AI accelerators, GPUs, TPUs, NPUs, custom ASICs & wafer-scale engines",
-                re.compile(
-                    r"\b(AI\s+accelerator|\bGPU\b|\bTPU\b|\bNPU\b|custom\s+ASIC|wafer-scale\s+engine|inference\s+chip|training\s+chip|tensor\s+core|systolic\s+array)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-        ],
-    },
-    {
-        "domain": "memory",
-        "bottleneck": "memory bandwidth",
-        "subtopics": [
-            (
-                "HBM, DRAM, SRAM, MRAM/ReRAM & memory-wall architectures",
-                re.compile(
-                    r"\b(\bHBM[234eE]*\b|high\s+bandwidth\s+memory|\bDRAM\b|\bSRAM\b|\bMRAM\b|\bReRAM\b|memory\s+bandwidth|memory\s+wall|LPDDR[56]\w*|GDDR[67]\w*)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "HBM4 & HBM4e logic base dies (TSMC N4/N3) & 2,048-bit wide memory interfaces",
-                re.compile(
-                    r"\b(HBM4e?|2,?048-bit\s+(?:memory|interface|HBM)|custom\s+(?:HBM\s+)?base\s+die|logic\s+base\s+die|hybrid\s+bonding.*?HBM)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "Compute Express Link (CXL 3.0 / 3.1) memory pooling, fabric switches & resource disaggregation",
-                re.compile(
-                    r"\b(\bCXL\b(?:\s*3(?:\.[01])?)?|compute\s+express\s+link|memory\s+pooling|CXL\s+(?:switch|fabric|disaggregation|expander)|cache-coherent\s+memory)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "Processing-in-Memory (PIM) & Near-Memory Compute in DRAM banks/buffer dies",
-                re.compile(
-                    r"\b(processing-in-memory|\bPIM\b.*?(?:DRAM|HBM|memory|bank|buffer\s+die)|near-memory\s+comput(?:e|ing)|in-memory\s+comput(?:e|ing)|in-DRAM\s+compute|HBM-PIM)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-        ],
-    },
-    {
-        "domain": "interconnect",
-        "bottleneck": "interconnect",
-        "subtopics": [
-            (
-                "Scale-up & scale-out fabrics (NVLink, InfiniBand, Ultra Ethernet, PCIe, SerDes, retimers, pluggable optics)",
-                re.compile(
-                    r"\b(NVLink|NVSwitch|InfiniBand|Ultra\s+Ethernet|optical\s+interconnect|silicon\s+photonics|pluggable\s+optics|optical\s+transceiver|\bSerDes\b|retimer|PCIe\s*[67])\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "Direct-drive All-Optical Circuit Switches (OCS) using MEMS 2D/3D mirror arrays",
-                re.compile(
-                    r"\b(optical\s+circuit\s+switch(?:ing|es)?|\bOCS\b.*?(?:MEMS|optical|mirror|fabric|cluster|spine)|MEMS\s+(?:2D|3D|mirror\s+array|optical\s+switch)|all-optical\s+switch(?:ing)?|E-O-E\s+conversion)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "51.2T and 102.4T switch ASICs co-packaged with optical engines (CPO)",
-                re.compile(
-                    r"\b(co-packaged\s+optics|\bCPO\b.*?(?:switch|ASIC|optical\s+engine|51\.2T|102\.4T|silicon\s+photonics)|(?:51\.2\s*T|102\.4\s*T)\s*(?:bps)?\s*(?:switch|ASIC|CPO|Ethernet)|optical\s+engine\s+co-packaged)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-        ],
-    },
-    {
-        "domain": "packaging",
-        "bottleneck": "manufacturing capacity",
-        "subtopics": [
-            (
-                "Chiplets, 2.5D/3D packaging, CoWoS, interposers, hybrid bonding & RDL",
-                re.compile(
-                    r"\b(chiplet|2\.5D\s+packaging|3D\s+packaging|CoWoS(?:-[SLR])?|SoIC|EMIB|Foveros|hybrid\s+bonding|redistribution\s+layer|\bRDL\b|silicon\s+interposer|advanced\s+packaging)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "Through-Glass Vias (TGV) with ultra-high aspect ratios & sub-10 um pitch on glass core substrates",
-                re.compile(
-                    r"\b(through-glass\s+via|\bTGV\b.*?(?:glass|via|substrate|interposer|pitch|aspect\s+ratio|laser)|sub-10\s*(?:µm|um|micron)\s+pitch|glass\s+core\s+substrate|glass\s+substrate)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "Fan-Out Panel-Level Packaging (FOPLP) & rectangular panel packaging economics",
-                re.compile(
-                    r"\b(fan-out\s+panel-level\s+packaging|\bFOPLP\b|panel-level\s+packaging|\bPLP\b.*?(?:wafer|packaging|substrate|panel|CoWoS)|rectangular\s+panel\s+packaging)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "Coefficient of Thermal Expansion (CTE) matching & organic ABF substrate warpage mitigation",
-                re.compile(
-                    r"\b(coefficient\s+of\s+thermal\s+expansion|\bCTE\b\s+mismatch|\bCTE\b\s+matching|glass\s+interposer|\bABF\b\s+(?:substrate|warpage)|substrate\s+warpage)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-        ],
-    },
-    {
-        "domain": "manufacturing",
-        "bottleneck": "manufacturing capacity",
-        "subtopics": [
-            (
-                "Semiconductor lithography (EUV/High-NA), deposition, etch, metrology, advanced nodes, wafer capacity, yield & EDA",
-                re.compile(
-                    r"\b(lithography|High-NA\s+EUV|\bEUV\b|atomic\s+layer\s+deposition|plasma\s+etch|metrology|gate-all-around|\bGAA\b|CFET|wafer\s+capacity|fab\s+yield|\bEDA\b\s+tool|physical\s+design)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "CVD synthetic diamond substrates & thermal spreaders (~2,000 W/m*K) bonded directly to silicon",
-                re.compile(
-                    r"\b(CVD\s+diamond|chemical\s+vapor\s+deposition\s+diamond|diamond\s+(?:heat\s+spreader|substrate|wafer|thermal\s+spreader|interposer)|diamond-on-silicon|synthetic\s+diamond\s+cooling)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "Ultra-Wide Bandgap (UWBG) materials: Gallium Oxide (Ga2O3) & Aluminum Nitride (AlN) power/thermal electronics",
-                re.compile(
-                    r"\b(gallium\s+oxide|Ga2O3|beta-Ga2O3|aluminum\s+nitride|aluminium\s+nitride|\bAlN\b\s+(?:substrate|wafer|thin\s+film|interlayer|thermal|power)|ultra-wide\s+bandgap|\bUWBG\b|compound\s+semiconductor)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-        ],
-    },
-    {
-        "domain": "power cooling",
-        "bottleneck": "power / thermal",
-        "subtopics": [
-            (
-                "Direct-to-Chip (DLC) microchannel cold plates & manifold hydraulics",
-                re.compile(
-                    r"\b(direct-to-chip|direct\s+liquid\s+cooling|\bDLC\b.*?(?:cool|cold\s*plate|rack)|microchannel\s+cold\s*plate|cold\s*plate|manifold\s+hydraulics|micro-?channel\s+heat\s+sink|liquid\s+cooling)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "Single-phase & two-phase liquid immersion cooling using synthetic dielectric fluids",
-                re.compile(
-                    r"\b(single-phase\s+immersion|two-phase\s+(?:liquid\s+)?immersion|immersion\s+cooling|dielectric\s+fluid|fluorochemical\s+coolant|boiling\s+heat\s+transfer.*?dielectric)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "Liquid-to-Liquid & Liquid-to-Air Coolant Distribution Units (CDUs)",
-                re.compile(
-                    r"\b(coolant\s+distribution\s+unit|\bCDU\b.*?(?:liquid|coolant|rack|kW|MW|heat\s+exchanger)|liquid-to-liquid|liquid-to-air\s+CDU|facility\s+water\s+loop)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "In-silicon microfluidic cooling channels etched directly into active compute dies",
-                re.compile(
-                    r"\b(in-silicon\s+microfluidic|microfluidic\s+cooling|backside\s+microfluidic|embedded\s+microchannel\s+cooling|intradie\s+cooling|direct-on-die\s+microfluidic|silicon\s+microchannel)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "400V / 800V DC high-voltage server rack busbar architectures",
-                re.compile(
-                    r"\b((?:\+/-\s*)?400\s*V(?:\s*DC)?|(?:\+/-\s*)?800\s*V(?:\s*DC)?|high-voltage\s+(?:DC\s+)?rack\s+busbar|rack\s+busbar\s+architecture|ORv3\s+HPR|high\s+power\s+rack\s+busbar|rack-scale\s+power)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "Vertical Power Delivery (VPD) & on-package Integrated Voltage Regulators (IVR)",
-                re.compile(
-                    r"\b(vertical\s+power\s+delivery|\bVPD\b.*?(?:power|regulator|package|die|substrate)|integrated\s+voltage\s+regulator|\bIVR\b.*?(?:on-package|on-die|power|buck)|backside\s+power\s+delivery|\bBSPDN\b)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "GaN & SiC point-of-load (PoL) converter stages at multi-MHz switching frequencies",
-                re.compile(
-                    r"\b(point-of-load|\bPoL\b\s+converter|(?:GaN|gallium\s+nitride|SiC|silicon\s+carbide).*?(?:point-of-load|buck\s+converter|server\s+PSU|power\s+stage|MHz|megahertz)|multi-megahertz\s+switching)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-        ],
-    },
-    {
-        "domain": "robotics hardware",
-        "bottleneck": "robotics embodiment",
-        "subtopics": [
-            (
-                "Robotics hardware: actuators, sensors, dexterous hands, embodied AI & edge autonomy compute",
-                re.compile(
-                    r"\b(robot(?:ic)?\s+(?:actuator|hand|gripper|sensor|dexterity|embodiment)|harmonic\s+drive|tactile\s+sensor|embodied\s+AI\s+hardware|humanoid\s+robot|edge\s+AI\s+chip|physical\s+autonomy)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-        ],
-    },
-    {
-        "domain": "quantum / neuromorphic / photonic compute",
-        "bottleneck": "compute / interconnect / energy efficiency",
-        "subtopics": [
-            (
-                "Neuromorphic Computing: spiking neural networks (SNNs) in silicon, event-based sensory processing & sub-milliwatt edge compute",
-                re.compile(
-                    r"\b(neuromorphic\s+(?:comput(?:ing|e|er)|chips?|processors?|silicon|sensors?|hardware)|spiking\s+neural\s+networks?|\bSNN\b\s+(?:chips?|processors?|accelerators?|silicon)|biological\s+neural\s+spikes?|event-based\s+(?:vision|sensory|cameras?|sensors?)|dynamic\s+vision\s+sensors?|memristive\s+(?:crossbars?|synapses?)|fractional\s+milliwatt|sub-milliwatt\s+(?:compute|silicon|sensory))\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "Quantum Computing: superposition & entanglement QPUs, fault-tolerant logical qubits, QEC, combinatorial optimization, quantum chemistry & cryptographic advantage",
-                re.compile(
-                    r"\b(quantum\s+(?:comput(?:ing|ers?|ation)|processors?|accelerators?|interconnects?|error\s+correction|supremacy|advantage|chemistry|annealing)|\bQPUs?\b|logical\s+qubits?|superconducting\s+qubits?|trapped-ion\s+qubits?|neutral-atom\s+qubits?|photonic\s+qubits?|silicon\s+spin\s+qubits?|topological\s+qubits?|surface\s+codes?|\bQEC\b|cryo-CMOS|superposition.*?entanglement|\bQAOA\b|\bVQE\b)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-            (
-                "Optical & Photonic Computing: photonic matrix-vector multiplication (MVM), MZI meshes, optical tensor cores & photonic die-to-die interconnects bypassing copper bottlenecks",
-                re.compile(
-                    r"\b(optical\s+(?:comput(?:ing|e|ers?)|neural\s+networks?|matrix-vector|tensor\s+cores?|die-to-die|chip-to-chip)|photonic\s+(?:comput(?:ing|e|ers?)|processors?|tensor\s+cores?|accelerators?|matrix-vector|die-to-die|interconnects?|crossbars?)|Mach-Zehnder\s+interferometers?|\bMZI\b\s+mesh(?:es)?|photonic\s+\bMVM\b|optical\s+\bMVM\b)\b",
-                    re.IGNORECASE,
-                ),
-            ),
-        ],
-    },
-]
-
-
-def match_hardware_signals(item):
-    """Scan item text equally across all 8 hardware domains (both original and newly integrated topics)."""
-    haystack = " ".join(
-        [
-            clean_text(item.get("title", "")),
-            clean_text(item.get("raw_summary", "")),
-            clean_text(item.get("category", "")),
-        ]
-    )
-    if not haystack:
-        return []
-
-    matched = []
-    for entry in HARDWARE_DOMAIN_TAXONOMY:
-        subs = [sub_name for sub_name, pat in entry["subtopics"] if pat.search(haystack)]
-        if subs:
-            matched.append(
-                {
-                    "domain": entry["domain"],
-                    "bottleneck": entry["bottleneck"],
-                    "subtopics": subs,
-                }
-            )
-    return matched
-
-
-def enrich_item_with_hardware_signals(item):
-    """Tag candidate item in-place across all 8 hardware domains (old + new equally) prior to capping and LLM classification."""
-    matches = match_hardware_signals(item)
-    if not matches:
-        return item
-
-    domains = []
-    subtopics = []
-    for m in matches:
-        if m["domain"] not in domains:
-            domains.append(m["domain"])
-        for s in m["subtopics"]:
-            if s not in subtopics:
-                subtopics.append(s)
-
-    item["hardware_signal_domains"] = " | ".join(domains)
-    item["hardware_signal_subtopics"] = " ; ".join(subtopics)
-    item["hardware_domain_hint"] = matches[0]["domain"]
-    item["bottleneck_hint"] = matches[0]["bottleneck"]
-    return item
-
 REQUEST_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
     "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, text/html, application/json;q=0.9, */*;q=0.8",
@@ -643,35 +359,24 @@ def chunk_list(values, size):
 
 
 def fair_cap_items(items, max_items):
-    """Apply a global cap without letting one source dominate the run, treating all sources and all 8 hardware domains (old + new) equally."""
-    for item in items:
-        enrich_item_with_hardware_signals(item)
+    """Interleave items round-robin across sources and apply a global cap without letting one source dominate."""
+    if not items:
+        return []
 
-    if max_items <= 0 or len(items) <= max_items:
-        return items
-
-    grouped_signal = defaultdict(list)
-    grouped_other = defaultdict(list)
+    grouped = defaultdict(deque)
     source_order = []
     for item in items:
         source = item.get("source", "unknown")
-        if source not in grouped_signal and source not in grouped_other:
+        if source not in grouped:
             source_order.append(source)
-        if item.get("hardware_signal_domains"):
-            grouped_signal[source].append(item)
-        else:
-            grouped_other[source].append(item)
+        grouped[source].append(item)
 
-    grouped = {
-        source: deque(grouped_signal[source] + grouped_other[source])
-        for source in source_order
-    }
-
+    limit = max_items if max_items > 0 else len(items)
     result = []
-    while len(result) < max_items and source_order:
+    while len(result) < limit and source_order:
         next_order = []
         for source in source_order:
-            if grouped[source] and len(result) < max_items:
+            if grouped[source] and len(result) < limit:
                 result.append(grouped[source].popleft())
             if grouped[source]:
                 next_order.append(source)
@@ -1939,9 +1644,6 @@ def classify_batch(candidates):
 
     compact_items = []
     for index, item in enumerate(candidates):
-        signals = match_hardware_signals(item)
-        matched_domains = ", ".join(s["domain"] for s in signals)
-        matched_subs = "; ".join(sub for s in signals for sub in s["subtopics"])
         compact_items.append(
             {
                 "index": index,
@@ -1951,7 +1653,6 @@ def classify_batch(candidates):
                 "summary": item.get("raw_summary", "")[:2200],
                 "url": item.get("url", "")[:400],
                 "published_at": item.get("published_at", "")[:80],
-                "detected_hardware_signals": f"{matched_domains} ({matched_subs})"[:350] if matched_subs else "",
             }
         )
 
@@ -2113,14 +1814,11 @@ def classify_and_insert(candidates):
                 continue
 
             cap = LLM_TEXT_FIELD_MAX_CHARS
-            enrich_item_with_hardware_signals(original)
-            resolved_domain = clean_text(result.get("hardware_domain", "")) or original.get("hardware_domain_hint", "")
-            resolved_bottleneck = clean_text(result.get("bottleneck_addressed", "")) or original.get("bottleneck_hint", "")
             item = {
                 **original,
                 "category": clean_text(result.get("category", ""))[:cap],
-                "hardware_domain": resolved_domain[:cap],
-                "bottleneck_addressed": resolved_bottleneck[:cap],
+                "hardware_domain": clean_text(result.get("hardware_domain", ""))[:cap],
+                "bottleneck_addressed": clean_text(result.get("bottleneck_addressed", ""))[:cap],
                 "specific_tech": clean_text(result.get("specific_tech", ""))[:cap],
                 "relevance_score": score,
                 "why_it_matters": clean_text(result.get("why_it_matters", ""))[:cap],
@@ -2244,7 +1942,6 @@ def fetch_and_enqueue():
         if not url:
             continue
         item["url"] = url
-        enrich_item_with_hardware_signals(item)
         fp = item_fingerprint(item)
         item["content_fingerprint"] = fp
 
