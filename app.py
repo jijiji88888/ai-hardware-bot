@@ -8,7 +8,7 @@ import hashlib
 import re
 import logging
 import threading
-from collections import defaultdict, deque
+from collections import defaultdict, deque, namedtuple
 from threading import Lock
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl, urlencode as encode_query
@@ -191,7 +191,6 @@ DEFAULT_SPECIALIST_RSS_FEEDS = [
     ("Semiconductor Engineering", "https://semiengineering.com/feed/"),
     ("The Register HPC", "https://www.theregister.com/on_prem/headlines.atom"),
     ("ServeTheHome", "https://www.servethehome.com/feed/"),
-    ("OCP Blog", "https://www.opencompute.org/blog/rss"),
     ("Power Electronics News", "https://www.powerelectronicsnews.com/feed/"),
     ("EE Times", "https://www.eetimes.com/feed/"),
     ("Blocks and Files", "https://www.blocksandfiles.com/feed/"),
@@ -214,6 +213,7 @@ DEFAULT_HTML_SCRAPER_TARGETS = [
     ("TrendForce News", r"https://www.trendforce.com/news/;;/\d{4}/\d{2}/\d{2}/"),
     ("Data Center Dynamics", r"https://www.datacenterdynamics.com/en/news/;;/en/(?:news|analysis|opinions|product-news)/[a-z0-9-]+"),
     ("HPCwire", r"https://www.hpcwire.com/;;/(?:20\d{2}/\d{2}/\d{2}|off-the-wire)/[a-z0-9-]+"),
+    ("OCP Blog", "https://www.opencompute.org/blog"),
 ]
 
 # Step 3: SEC EDGAR polling — market-wide full-text search (EFTS)
@@ -352,6 +352,41 @@ def feed_record_result(feed_url, success):
             state["consecutive_failures"] += 1
             if state["consecutive_failures"] >= FEED_FAILURE_THRESHOLD:
                 state["cooldown_until"] = utc_now() + dt.timedelta(minutes=FEED_COOLDOWN_MINUTES)
+
+
+class RSSFetchStatus:
+    """Explicit outcome states for RSS/Atom fetches so callers can distinguish
+    HTTP 304 Not Modified and active cooldowns from genuine feed failures."""
+
+    OK = "ok"
+    NOT_MODIFIED = "not_modified"
+    COOLDOWN = "cooldown"
+    EMPTY = "empty"
+    ERROR = "error"
+
+
+RSSFetchResult = namedtuple("RSSFetchResult", ["items", "status"])
+
+
+def _get_feed_cache_headers(feed_url):
+    with _feed_state_lock:
+        return dict(FEED_CACHE_HEADERS.get(feed_url) or {})
+
+
+def _update_feed_cache_headers(feed_url, response_headers):
+    """Store ETag / Last-Modified validators thread-safely (supports both HTTP 200 and 304 per RFC 9110)."""
+    if not response_headers:
+        return
+    etag = response_headers.get("ETag")
+    last_modified = response_headers.get("Last-Modified")
+    if not etag and not last_modified:
+        return
+    with _feed_state_lock:
+        prev = FEED_CACHE_HEADERS.get(feed_url) or {}
+        FEED_CACHE_HEADERS[feed_url] = {
+            "etag": etag or prev.get("etag"),
+            "last_modified": last_modified or prev.get("last_modified"),
+        }
 
 
 def ensure_db_directory():
@@ -1038,22 +1073,19 @@ def fetch_techmeme():
     )
 
 
-def fetch_standard_rss(
-    feed_url, source_label=None, source_type="rss", max_items=25
-):
-  """Fetch an RSS/Atom feed with browser headers, conditional GET,
+def _fetch_rss_feed_document(feed_url, source_label=None):
+  """Shared conditional-GET + cooldown + Wayback RSS/Atom retrieval core.
 
-  cooldown tracking, and a Wayback Machine fallback.
+  Returns a tuple ``(feed, status)`` where ``status`` is one of
+  ``RSSFetchStatus.{OK, NOT_MODIFIED, COOLDOWN, ERROR}``.
   """
-  # 1. Early exit: if on cooldown, do nothing and return immediately
+  # 1. Early exit: if on cooldown, skip live attempt without triggering fallbacks
   if feed_should_skip_live(feed_url):
     log.info(
         f"RSS feed on cooldown, skipping attempt: {source_label or feed_url}"
     )
-    return []
+    return None, RSSFetchStatus.COOLDOWN
 
-  items = []
-  max_items = max_items or 25
   feed = None
   raw_content = None
   live_status = None
@@ -1061,7 +1093,7 @@ def fetch_standard_rss(
 
   # 2. Build request headers with cached ETag / Last-Modified
   request_headers = dict(REQUEST_HEADERS)
-  cached_headers = FEED_CACHE_HEADERS.get(feed_url) or {}
+  cached_headers = _get_feed_cache_headers(feed_url)
   if cached_headers.get("etag"):
     request_headers["If-None-Match"] = cached_headers["etag"]
   if cached_headers.get("last_modified"):
@@ -1073,15 +1105,10 @@ def fetch_standard_rss(
     live_status = response.status_code
     if response.status_code == 304:
       not_modified = True
+      _update_feed_cache_headers(feed_url, getattr(response, "headers", None))
     elif response.status_code == 200:
       raw_content = response.content
-      if response.headers.get("ETag") or response.headers.get("Last-Modified"):
-        FEED_CACHE_HEADERS[feed_url] = {
-            "etag": response.headers.get("ETag", cached_headers.get("etag")),
-            "last_modified": response.headers.get(
-                "Last-Modified", cached_headers.get("last_modified")
-            ),
-        }
+      _update_feed_cache_headers(feed_url, getattr(response, "headers", None))
     else:
       log.info(
           f"RSS live fetch failed for {source_label or feed_url}:"
@@ -1092,10 +1119,10 @@ def fetch_standard_rss(
   except Exception as exc:
     log.info(f"RSS requests issue for {source_label or feed_url}: {repr(exc)}")
 
-  # 4. Handle 304 Not Modified (success, no new content)
+  # 4. Handle 304 Not Modified (healthy feed, no new items since last poll)
   if not_modified:
     feed_record_result(feed_url, success=True)
-    return items
+    return None, RSSFetchStatus.NOT_MODIFIED
 
   # 5. Parse live response
   if raw_content:
@@ -1148,9 +1175,23 @@ def fetch_standard_rss(
       )
 
   if not feed or not getattr(feed, "entries", None):
-    return items
+    return None, RSSFetchStatus.ERROR
 
-  # 8. Extract items
+  return feed, RSSFetchStatus.OK
+
+
+def fetch_standard_rss(
+    feed_url, source_label=None, source_type="rss", max_items=25, return_result=False
+):
+  """Fetch an RSS/Atom feed with browser headers, conditional GET,
+  cooldown tracking, and a Wayback Machine fallback.
+  """
+  max_items = max_items or 25
+  feed, status = _fetch_rss_feed_document(feed_url, source_label=source_label)
+  if status != RSSFetchStatus.OK or feed is None:
+    return RSSFetchResult([], status) if return_result else []
+
+  items = []
   source_name = source_label or (
       clean_text(feed.feed.get("title", feed_url))
       if getattr(feed, "feed", None)
@@ -1175,122 +1216,22 @@ def fetch_standard_rss(
         "raw_summary": summary[:2200],
     })
 
-  return items
+  final_status = RSSFetchStatus.OK if items else RSSFetchStatus.EMPTY
+  return RSSFetchResult(items, final_status) if return_result else items
 
 
 def fetch_standard_rss_2(
-    feed_url, source_label=None, source_type="custom_rss", max_items=None
+    feed_url, source_label=None, source_type="custom_rss", max_items=None, return_result=False
 ):
   """Enriched RSS/Atom fetcher: extracts <content:encoded>, tags/categories,
-
   author, and handles stubs.
   """
-  # 1. Early exit: if on cooldown, do nothing and return immediately
-  if feed_should_skip_live(feed_url):
-    log.info(
-        f"RSS feed on cooldown, skipping attempt: {source_label or feed_url}"
-    )
-    return []
+  max_items = max_items or 25
+  feed, status = _fetch_rss_feed_document(feed_url, source_label=source_label)
+  if status != RSSFetchStatus.OK or feed is None:
+    return RSSFetchResult([], status) if return_result else []
 
   items = []
-  max_items = max_items or 25
-  feed = None
-  raw_content = None
-  live_status = None
-  not_modified = False
-
-  # 2. Build request headers with cached ETag / Last-Modified
-  request_headers = dict(REQUEST_HEADERS)
-  cached_headers = FEED_CACHE_HEADERS.get(feed_url) or {}
-  if cached_headers.get("etag"):
-    request_headers["If-None-Match"] = cached_headers["etag"]
-  if cached_headers.get("last_modified"):
-    request_headers["If-Modified-Since"] = cached_headers["last_modified"]
-
-  # 3. Live HTTP request
-  try:
-    response = fetch_rss_with_tls_fallback(feed_url, request_headers, timeout=35)
-    live_status = response.status_code
-    if response.status_code == 304:
-      not_modified = True
-    elif response.status_code == 200:
-      raw_content = response.content
-      if response.headers.get("ETag") or response.headers.get("Last-Modified"):
-        FEED_CACHE_HEADERS[feed_url] = {
-            "etag": response.headers.get("ETag", cached_headers.get("etag")),
-            "last_modified": response.headers.get(
-                "Last-Modified", cached_headers.get("last_modified")
-            ),
-        }
-    else:
-      log.info(
-          f"RSS live fetch failed for {source_label or feed_url}:"
-          f" {response.status_code}"
-      )
-  except requests.exceptions.Timeout:
-    log.info(f"RSS timeout for {source_label or feed_url}.")
-  except Exception as exc:
-    log.info(f"RSS requests issue for {source_label or feed_url}: {repr(exc)}")
-
-  # 4. Handle 304 Not Modified
-  if not_modified:
-    feed_record_result(feed_url, success=True)
-    return items
-
-  # 5. Parse live response
-  if raw_content:
-    try:
-      feed = feedparser.parse(raw_content)
-    except Exception as exc:
-      log.info(f"RSS feedparser parsing issue for {feed_url}: {repr(exc)}")
-      feed = None
-
-  # 6. Record live attempt result
-  live_entries_ok = bool(feed and getattr(feed, "entries", None))
-  feed_record_result(feed_url, success=live_entries_ok)
-
-  # 7. Fallback to Wayback Machine only if live fetch produced no entries
-  if not live_entries_ok:
-    reason = (
-        "blocked/challenge page or malformed feed"
-        if raw_content is not None
-        else f"status {live_status or 'request failed'}"
-    )
-    log.info(
-        f"RSS live path yielded no entries for {source_label or feed_url}"
-        f" ({reason}). Trying Wayback Machine..."
-    )
-    try:
-      wb_api_url = f"https://archive.org/wayback/available?url={feed_url}"
-      wb_resp = requests.get(wb_api_url, timeout=15)
-      if wb_resp.status_code == 200:
-        snapshots = wb_resp.json().get("archived_snapshots", {})
-        if "closest" in snapshots and snapshots["closest"].get("available"):
-          snapshot_url = re.sub(
-              r"/web/(\d+)/",
-              r"/web/\1id_/",
-              snapshots["closest"]["url"].replace("http://", "https://"),
-          )
-          log.info(
-              f"Wayback snapshot found for {source_label or feed_url}."
-              " Fetching..."
-          )
-          snap_resp = requests.get(
-              snapshot_url, headers=REQUEST_HEADERS, timeout=30
-          )
-          if snap_resp.status_code == 200:
-            wb_feed = feedparser.parse(snap_resp.content)
-            if getattr(wb_feed, "entries", None):
-              feed = wb_feed
-    except Exception as wb_exc:
-      log.info(
-          f"Wayback Machine RSS fallback failed for {feed_url}: {repr(wb_exc)}"
-      )
-
-  if not feed or not getattr(feed, "entries", None):
-    return items
-
-  # 8. Extract and enrich items
   source_name = source_label or (
       clean_text(feed.feed.get("title", feed_url))
       if getattr(feed, "feed", None)
@@ -1353,7 +1294,8 @@ def fetch_standard_rss_2(
         "raw_summary": " | ".join(substance) if substance else title,
     })
 
-  return items
+  final_status = RSSFetchStatus.OK if items else RSSFetchStatus.EMPTY
+  return RSSFetchResult(items, final_status) if return_result else items
 
 
 # =========================
@@ -1366,20 +1308,39 @@ def split_fallback_urls(url_value):
     return [part.strip() for part in raw.split(";;") if part.strip()]
 
 
-def fetch_feed_specs(specs, source_type, max_items_per_feed):
+def _fetch_feed_specs_common(specs, source_type, max_items_per_feed, rss_fetcher):
+  """Fetch a list of (label, url_spec) feeds, falling back to HTML scraping
+  ONLY when RSS genuinely fails — never when a feed returns HTTP 304 Not Modified
+  or is skipped due to cooldown.
+  """
   items = []
   for label, feed_url in specs:
     total_for_label = 0
+    unchanged = False
+    skipped_cooldown = False
     candidate_urls = split_fallback_urls(feed_url)
 
     for candidate_url in candidate_urls:
       try:
-        fetched = fetch_standard_rss(
+        result = rss_fetcher(
             candidate_url,
             source_label=label,
             source_type=source_type,
             max_items=max_items_per_feed,
+            return_result=True,
         )
+        if result.status == RSSFetchStatus.NOT_MODIFIED:
+          log.info(
+              f"{source_type} feed: 0 new items from {label}"
+              " (HTTP 304 Not Modified; skipping fallback)"
+          )
+          unchanged = True
+          break
+        if result.status == RSSFetchStatus.COOLDOWN:
+          skipped_cooldown = True
+          continue
+
+        fetched = result.items
         log.info(f"{source_type} feed: {len(fetched)} items from {label}")
         items.extend(fetched)
         total_for_label += len(fetched)
@@ -1389,47 +1350,30 @@ def fetch_feed_specs(specs, source_type, max_items_per_feed):
         log.error(
             f"{source_type} issue for {label} / {candidate_url}: {repr(exc)}"
         )
-    if total_for_label == 0 and candidate_urls:
+
+    if total_for_label == 0 and not unchanged and not skipped_cooldown and candidate_urls:
       parsed_root = urlsplit(candidate_urls[0])
       if parsed_root.scheme and parsed_root.netloc:
         root_url = f"{parsed_root.scheme}://{parsed_root.netloc}/"
-        log.info(f"{source_type}: RSS yielded 0 items for {label}; falling back to HTML scraper on {root_url}")
+        log.info(
+            f"{source_type}: RSS yielded 0 items for {label};"
+            f" falling back to HTML scraper on {root_url}"
+        )
         scraped_fallback = scrape_single_html_target(label, root_url, max_items_per_feed)
         items.extend(scraped_fallback)
   return items
+
+
+def fetch_feed_specs(specs, source_type, max_items_per_feed):
+  return _fetch_feed_specs_common(
+      specs, source_type, max_items_per_feed, fetch_standard_rss
+  )
 
 
 def fetch_feed_specs_2(specs, source_type, max_items_per_feed):
-  items = []
-  for label, feed_url in specs:
-    total_for_label = 0
-    candidate_urls = split_fallback_urls(feed_url)
-
-    for candidate_url in candidate_urls:
-      try:
-        fetched = fetch_standard_rss_2(
-            candidate_url,
-            source_label=label,
-            source_type=source_type,
-            max_items=max_items_per_feed,
-        )
-        log.info(f"{source_type} feed: {len(fetched)} items from {label}")
-        items.extend(fetched)
-        total_for_label += len(fetched)
-        if fetched:
-          break
-      except Exception as exc:
-        log.error(
-            f"{source_type} issue for {label} / {candidate_url}: {repr(exc)}"
-        )
-    if total_for_label == 0 and candidate_urls:
-      parsed_root = urlsplit(candidate_urls[0])
-      if parsed_root.scheme and parsed_root.netloc:
-        root_url = f"{parsed_root.scheme}://{parsed_root.netloc}/"
-        log.info(f"{source_type}: RSS yielded 0 items for {label}; falling back to HTML scraper on {root_url}")
-        scraped_fallback = scrape_single_html_target(label, root_url, max_items_per_feed)
-        items.extend(scraped_fallback)
-  return items
+  return _fetch_feed_specs_common(
+      specs, source_type, max_items_per_feed, fetch_standard_rss_2
+  )
 
 def fetch_webpage_summary_snippet(session, url, timeout=6):
     """Fallback scraper to grab OpenGraph or meta description for short stubs."""
